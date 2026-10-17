@@ -6,7 +6,7 @@ use std::path::PathBuf;
 /// Output format for reports and manifests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum OutputFormat {
+pub(crate) enum OutputFormat {
     /// Human-readable console output
     #[default]
     Console,
@@ -19,7 +19,7 @@ pub enum OutputFormat {
 /// Severity level for a diagnostic finding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Severity {
+pub(crate) enum Severity {
     Hint,
     Info,
     Warning,
@@ -39,17 +39,17 @@ impl std::fmt::Display for Severity {
 
 /// Source code location span.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct Span {
-    pub file: PathBuf,
-    pub start_line: usize,
-    pub start_col: usize,
-    pub end_line: usize,
-    pub end_col: usize,
+pub(crate) struct Span {
+    pub(crate) file: PathBuf,
+    pub(crate) start_line: usize,
+    pub(crate) start_col: usize,
+    pub(crate) end_line: usize,
+    pub(crate) end_col: usize,
 }
 
 impl Span {
     /// Creates a new `Span`.
-    pub fn new(
+    pub(crate) fn new(
         file: impl Into<PathBuf>,
         start_line: usize,
         start_col: usize,
@@ -68,19 +68,23 @@ impl Span {
 
 /// A structured diagnostic finding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Diagnostic {
-    pub rule: String,
-    pub severity: Severity,
-    pub message: String,
+pub(crate) struct Diagnostic {
+    pub(crate) rule: String,
+    pub(crate) severity: Severity,
+    pub(crate) message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub span: Option<Span>,
+    pub(crate) span: Option<Span>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub suggested_fix: Option<String>,
+    pub(crate) suggested_fix: Option<String>,
 }
 
 impl Diagnostic {
     /// Creates a new `Diagnostic`.
-    pub fn new(rule: impl Into<String>, severity: Severity, message: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        rule: impl Into<String>,
+        severity: Severity,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             rule: rule.into(),
             severity,
@@ -91,13 +95,13 @@ impl Diagnostic {
     }
 
     /// Attaches a source span to the diagnostic.
-    pub fn with_span(mut self, span: Span) -> Self {
+    pub(crate) fn with_span(mut self, span: Span) -> Self {
         self.span = Some(span);
         self
     }
 
     /// Attaches a suggested fix to the diagnostic.
-    pub fn with_suggested_fix(mut self, fix: impl Into<String>) -> Self {
+    pub(crate) fn with_suggested_fix(mut self, fix: impl Into<String>) -> Self {
         self.suggested_fix = Some(fix.into());
         self
     }
@@ -105,23 +109,23 @@ impl Diagnostic {
 
 /// Summary counts for a diagnostic report.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct ReportSummary {
-    pub total_errors: usize,
-    pub total_warnings: usize,
-    pub total_info: usize,
-    pub total_hints: usize,
+pub(crate) struct ReportSummary {
+    pub(crate) total_errors: usize,
+    pub(crate) total_warnings: usize,
+    pub(crate) total_info: usize,
+    pub(crate) total_hints: usize,
 }
 
 /// Aggregated report of diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct DiagnosticReport {
-    pub diagnostics: Vec<Diagnostic>,
-    pub summary: ReportSummary,
+pub(crate) struct DiagnosticReport {
+    pub(crate) diagnostics: Vec<Diagnostic>,
+    pub(crate) summary: ReportSummary,
 }
 
 impl DiagnosticReport {
     /// Creates a new `DiagnosticReport` from a list of diagnostics.
-    pub fn new(diagnostics: Vec<Diagnostic>) -> Self {
+    pub(crate) fn new(diagnostics: Vec<Diagnostic>) -> Self {
         let mut summary = ReportSummary::default();
         for d in &diagnostics {
             match d.severity {
@@ -138,7 +142,11 @@ impl DiagnosticReport {
     }
 
     /// Renders the diagnostic report to a writer in the requested format.
-    pub fn render<W: Write>(&self, format: OutputFormat, writer: &mut W) -> std::io::Result<()> {
+    pub(crate) fn render<W: Write>(
+        &self,
+        format: OutputFormat,
+        writer: &mut W,
+    ) -> std::io::Result<()> {
         match format {
             OutputFormat::Console => self.render_console(writer),
             OutputFormat::Json => {

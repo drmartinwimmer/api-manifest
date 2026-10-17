@@ -6,91 +6,26 @@
 
 ### Structs
 
-- `pub struct ApiCheckArgs { /* no public fields */ }` — _Arguments for `api-manifest check`._
-- `pub struct ApiDriftReport { pub additions: Vec < DriftItem >, pub removals: Vec < DriftItem >, pub modifications: Vec < DriftItem > }` — _Aggregated report of API drift between active code and manifest._
-- `pub struct ApiDumpArgs { /* no public fields */ }` — _Arguments for `api-manifest dump`._
-- `pub struct ApiManifest { pub name: String, pub version: Option < String >, pub library: Option < LibraryApi >, pub cli: Option < CliApi >, pub http: Option < HttpApi >, pub config: Option < ConfigApi > }` — _Comprehensive public API manifest representing library, CLI, HTTP, and config surfaces._
+- `pub struct ApiDriftReport { /* no public fields */ }` — _Aggregated report of API drift between active code and manifest._
+- `pub struct ApiManifest { /* no public fields */ }` — _Comprehensive public API manifest representing library, CLI, HTTP, and config surfaces._
 - `pub struct ApiManifestCommand { /* no public fields */ }` — _Command-line arguments for `api-manifest`._
-- `pub struct CliApi { pub commands: Vec < CliCommandItem > }` — _Public API surface for CLI binary targets._
-- `pub struct CliArgItem { pub id: String, pub short: Option < char >, pub long: Option < String >, pub value_name: Option < String >, pub required: bool, pub default_value: Option < String >, pub help: Option < String >, pub is_positional: bool }` — _A command line argument or flag._
-- `pub struct CliCommandItem { pub name: String, pub about: Option < String >, pub args: Vec < CliArgItem >, pub subcommands: Vec < String > }` — _A command line subcommand or entry point._
-- `pub struct ConfigApi { pub sections: Vec < ConfigSectionItem > }` — _Public API surface for configuration file formats._
-- `pub struct ConfigOptionItem { pub key: String, pub value_type: String, pub default_value: Option < String >, pub doc: Option < String > }` — _A configuration option or key within a configuration section._
-- `pub struct ConfigSectionItem { pub section: String, pub file_format: String, pub doc: Option < String >, pub options: Vec < ConfigOptionItem > }` — _A configuration section or table (e.g. `[lints.purist]` in Cargo.toml)._
-- `pub struct Diagnostic { pub rule: String, pub severity: Severity, pub message: String, pub span: Option < Span >, pub suggested_fix: Option < String > }` — _A structured diagnostic finding._
-- `pub struct DiagnosticReport { pub diagnostics: Vec < Diagnostic >, pub summary: ReportSummary }` — _Aggregated report of diagnostics._
-- `pub struct DriftItem { pub surface: DriftSurface, pub name: String, pub detail: String, pub is_breaking: bool, pub old_signature: Option < String >, pub new_signature: Option < String > }` — _A specific API drift finding between active code and checked-in manifest._
-- `pub struct HttpApi { pub endpoints: Vec < HttpEndpointItem > }` — _Public API surface for HTTP web service targets._
-- `pub struct HttpEndpointItem { pub method: String, pub path: String, pub handler: String, pub request_type: Option < String >, pub response_type: Option < String >, pub doc: Option < String > }` — _An HTTP web service endpoint._
-- `pub struct LibraryApi { pub items: Vec < LibraryItem > }` — _Public API surface for a library crate._
-- `pub struct LibraryItem { pub kind: ItemKind, pub name: String, pub path: String, pub signature: String, pub doc: Option < String > }` — _A public item exported by a Rust library._
-- `pub struct ReportSummary { pub total_errors: usize, pub total_warnings: usize, pub total_info: usize, pub total_hints: usize }` — _Summary counts for a diagnostic report._
-- `pub struct Span { pub file: PathBuf, pub start_line: usize, pub start_col: usize, pub end_line: usize, pub end_col: usize }` — _Source code location span._
 
 ### Enums
 
-- `pub enum ApiFailOn { Any, Breaking }` — _Drift threshold triggering non-zero exit code._
 - `pub enum ApiManifestError { PathNotFound(PathBuf), ManifestNotFound(PathBuf), Io(std :: io :: Error), Manifest(ManifestError), Json(serde_json :: Error), DriftDetected { drift_count: usize, breaking_count: usize } }` — _Error type for API manifest inspection execution._
-- `pub enum ApiSubcommand { Dump(ApiDumpArgs), Check(ApiCheckArgs) }` — _Subcommands for the API manifest and drift inspection tool._
-- `pub enum DriftSurface { Library, Cli, Http, Config }` — _Surface category where drift occurred._
-- `pub enum ItemKind { Struct, Enum, Function, Method, Trait, TypeAlias, Constant, Static, Field, Reexport }` — _Kind of public library item._
 - `pub enum ManifestError { Json(serde_json :: Error), Io { path: std :: path :: PathBuf, source: std :: io :: Error }, ParseMarkdown(String) }` — _Manifest formatting and parsing errors._
-- `pub enum ManifestFormat { Markdown, Json }` — _Manifest output format._
-- `pub enum OutputFormat { Console, Json, Markdown }` — _Output format for reports and manifests._
-- `pub enum Severity { Hint, Info, Warning, Error }` — _Severity level for a diagnostic finding._
-
-### Functions
-
-- `pub fn diff_manifests(active: & ApiManifest, baseline: & ApiManifest) -> ApiDriftReport` — _Diffs the active API manifest against the checked-in baseline manifest._
-- `pub fn extract_crate_api(crate_root: & Path) -> std :: io :: Result < ApiManifest >` — _High-level function that auto-detects targets and extracts the public API manifest from a crate root._
-- `pub fn format_markdown(manifest: & ApiManifest) -> String` — _Formats an `ApiManifest` as GitHub Flavored Markdown (`API.md`)._
-- `pub fn parse_str(content: & str) -> Result < ApiManifest , ManifestError >` — _Parses an `ApiManifest` from file contents (supports JSON or Markdown)._
-- `pub fn read_from_file(path: & Path) -> Result < ApiManifest , ManifestError >` — _Reads and parses an `ApiManifest` from disk._
 
 ### Methods
 
-- `pub fn ApiCheckArgs::new(manifest: PathBuf, fail_on: ApiFailOn, quiet: bool) -> Self` — _Creates a new `ApiCheckArgs` instance._
-- `pub fn ApiCheckArgs::run(self) -> Result < () , ApiManifestError >` — _Executes the API manifest drift check command._
-- `pub fn ApiCheckArgs::with_format(mut self, format: Option < OutputFormat >) -> Self` — _Sets the output format for diagnostics._
-- `pub fn ApiCheckArgs::with_path(mut self, path: Option < PathBuf >) -> Self` — _Sets the target directory path._
-- `pub fn ApiCheckArgs::with_quiet(mut self, quiet: bool) -> Self` — _Sets quiet logging flag._
 - `pub fn ApiDriftReport::breaking_count(& self) -> usize` — _Returns the number of breaking changes._
 - `pub fn ApiDriftReport::has_breaking_changes(& self) -> bool` — _Returns true if any breaking changes were detected._
 - `pub fn ApiDriftReport::is_clean(& self) -> bool` — _Returns true if there is no drift detected._
-- `pub fn ApiDriftReport::render_markdown(& self) -> String` — _Renders a human-readable Markdown diff table for review._
-- `pub fn ApiDriftReport::to_diagnostics(& self, manifest_file: & str) -> Vec < Diagnostic >` — _Converts drift items into standard [`Diagnostic`] findings._
 - `pub fn ApiDriftReport::total_drift_count(& self) -> usize` — _Returns the total number of drifted items._
-- `pub fn ApiDumpArgs::new(output: PathBuf, format: Option < OutputFormat >, quiet: bool) -> Self` — _Creates a new `ApiDumpArgs` instance._
-- `pub fn ApiDumpArgs::run(self) -> Result < () , ApiManifestError >` — _Executes the API manifest dump command._
-- `pub fn ApiDumpArgs::with_format(mut self, format: Option < OutputFormat >) -> Self` — _Sets the manifest output format._
-- `pub fn ApiDumpArgs::with_path(mut self, path: Option < PathBuf >) -> Self` — _Sets the target directory path._
-- `pub fn ApiDumpArgs::with_quiet(mut self, quiet: bool) -> Self` — _Sets quiet logging flag._
-- `pub fn ApiManifest::is_empty(& self) -> bool` — _Returns true if all surfaces are empty or None._
-- `pub fn ApiManifest::new(name: impl Into < String >, version: Option < String >) -> Self` — _Creates a new empty `ApiManifest` with a crate name._
-- `pub fn ApiManifest::with_cli(mut self, cli: CliApi) -> Self` — _Sets the CLI surface._
-- `pub fn ApiManifest::with_config(mut self, config: ConfigApi) -> Self` — _Sets the configuration file surface._
-- `pub fn ApiManifest::with_http(mut self, http: HttpApi) -> Self` — _Sets the HTTP service surface._
-- `pub fn ApiManifest::with_library(mut self, library: LibraryApi) -> Self` — _Sets the library surface._
-- `pub fn ApiManifestCommand::new(manifest_path: Option < PathBuf >, quiet: bool) -> Self` — _Creates a new `ApiManifestCommand`._
+- `pub fn ApiManifest::diff(& self, baseline: & Self) -> ApiDriftReport` — _Diffs this active `ApiManifest` against a checked-in baseline manifest._
+- `pub fn ApiManifest::extract_from_crate(crate_root: & Path) -> std :: io :: Result < Self >` — _Auto-detects targets and extracts the public API manifest from a crate root._
+- `pub fn ApiManifest::format_markdown(& self) -> String` — _Formats this `ApiManifest` as GitHub Flavored Markdown (`API.md`)._
+- `pub fn ApiManifest::read_from_file(path: & Path) -> Result < Self , ManifestError >` — _Reads and parses an `ApiManifest` from disk (supports Markdown or JSON)._
 - `pub fn ApiManifestCommand::run(self) -> Result < () , ApiManifestError >` — _Runs the API command (defaults to check if no subcommand is given)._
-- `pub fn ApiManifestCommand::with_path(mut self, path: Option < PathBuf >) -> Self` — _Sets the target directory path._
-- `pub fn ApiManifestCommand::with_subcommand(mut self, subcommand: ApiSubcommand) -> Self` — _Sets the subcommand._
-- `pub fn CliApi::new(mut commands: Vec < CliCommandItem >) -> Self` — _Creates a new `CliApi` with sorted commands._
-- `pub fn CliCommandItem::new(name: impl Into < String >, about: Option < String >, mut args: Vec < CliArgItem >, mut subcommands: Vec < String >) -> Self` — _Creates a new `CliCommandItem` with sorted arguments and subcommands._
-- `pub fn ConfigApi::new(mut sections: Vec < ConfigSectionItem >) -> Self` — _Creates a new `ConfigApi` with sorted sections._
-- `pub fn ConfigOptionItem::new(key: impl Into < String >, value_type: impl Into < String >, default_value: Option < String >, doc: Option < String >) -> Self` — _Creates a new `ConfigOptionItem`._
-- `pub fn ConfigSectionItem::new(section: impl Into < String >, file_format: impl Into < String >, doc: Option < String >, mut options: Vec < ConfigOptionItem >) -> Self` — _Creates a new `ConfigSectionItem` with sorted options._
-- `pub fn Diagnostic::new(rule: impl Into < String >, severity: Severity, message: impl Into < String >) -> Self` — _Creates a new `Diagnostic`._
-- `pub fn Diagnostic::with_span(mut self, span: Span) -> Self` — _Attaches a source span to the diagnostic._
-- `pub fn Diagnostic::with_suggested_fix(mut self, fix: impl Into < String >) -> Self` — _Attaches a suggested fix to the diagnostic._
-- `pub fn DiagnosticReport::new(diagnostics: Vec < Diagnostic >) -> Self` — _Creates a new `DiagnosticReport` from a list of diagnostics._
-- `pub fn DiagnosticReport::render< W : Write >(& self, format: OutputFormat, writer: & mut W) -> std :: io :: Result < () >` — _Renders the diagnostic report to a writer in the requested format._
-- `pub fn DriftItem::new(surface: DriftSurface, name: impl Into < String >, detail: impl Into < String >, is_breaking: bool, old_signature: Option < String >, new_signature: Option < String >) -> Self` — _Creates a new `DriftItem`._
-- `pub fn HttpApi::new(mut endpoints: Vec < HttpEndpointItem >) -> Self` — _Creates a new `HttpApi` with sorted endpoints._
-- `pub fn HttpEndpointItem::new(method: impl Into < String >, path: impl Into < String >, handler: impl Into < String >, request_type: Option < String >, response_type: Option < String >, doc: Option < String >) -> Self` — _Creates a new `HttpEndpointItem`._
-- `pub fn LibraryApi::new(mut items: Vec < LibraryItem >) -> Self` — _Creates a new `LibraryApi` with items sorted deterministically._
-- `pub fn LibraryItem::new(kind: ItemKind, name: impl Into < String >, path: impl Into < String >, signature: impl Into < String >, doc: Option < String >) -> Self` — _Creates a new `LibraryItem`._
-- `pub fn Span::new(file: impl Into < PathBuf >, start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> Self` — _Creates a new `Span`._
 
 ### Traits
 

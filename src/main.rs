@@ -35,21 +35,16 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
     use googletest::prelude::*;
-    use std::path::PathBuf;
 
     #[googletest::test]
     fn run_cli_existing_path_returns_success() {
-        let cli = Cli {
-            cmd: ApiManifestCommand::new(Some(PathBuf::from(".")), true),
-        };
+        let cli = Cli::parse_from(["api-manifest", "--path", ".", "--quiet"]);
         assert_that!(cli.run(), eq(ExitCode::SUCCESS));
     }
 
     #[googletest::test]
     fn run_cli_nonexistent_path_returns_exit_code_2() {
-        let cli = Cli {
-            cmd: ApiManifestCommand::new(Some(PathBuf::from("nonexistent_dir_404")), true),
-        };
+        let cli = Cli::parse_from(["api-manifest", "--path", "nonexistent_dir_404", "--quiet"]);
         assert_that!(cli.run(), eq(ExitCode::from(2)));
     }
 }

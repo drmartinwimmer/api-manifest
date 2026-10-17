@@ -86,7 +86,7 @@ impl MarkdownParseState {
         } else if trimmed.starts_with("- `")
             && let Some(sig) = extract_code_span(trimmed)
         {
-            let kind = parse_lib_item_kind(&self.current_subsection, &sig);
+            let kind = ItemKind::from_markdown_section(&self.current_subsection, &sig);
             let item_name = parse_lib_item_name(&sig);
             let mod_prefix = self.name.replace('-', "_");
             let path = format!("{mod_prefix}::{item_name}");
@@ -109,7 +109,7 @@ impl MarkdownParseState {
                 && !trimmed.starts_with("| ---")
                 && !trimmed.starts_with("| Flag")))
             && let Some(ref mut cmd) = self.current_cmd
-            && let Some(arg) = parse_cli_argument_row(trimmed)
+            && let Some(arg) = CliArgItem::from_markdown_row(trimmed)
         {
             cmd.args.push(arg);
         } else if trimmed.starts_with("- `")
@@ -160,9 +160,15 @@ impl MarkdownParseState {
             }
             let sec_name = extract_code_span(trimmed).unwrap_or_default();
             let file_fmt = trimmed
-                .split("(*")
+                .split("(_")
                 .nth(1)
-                .and_then(|s| s.split("*)").next())
+                .and_then(|s| s.split("_)").next())
+                .or_else(|| {
+                    trimmed
+                        .split("(*")
+                        .nth(1)
+                        .and_then(|s| s.split("*)").next())
+                })
                 .unwrap_or("Cargo.toml");
             self.current_cfg_sec =
                 Some(ConfigSectionItem::new(sec_name, file_fmt, None, Vec::new()));
@@ -170,7 +176,7 @@ impl MarkdownParseState {
             && !trimmed.starts_with("| ---")
             && !trimmed.starts_with("| Key")
             && let Some(ref mut sec) = self.current_cfg_sec
-            && let Some(opt) = parse_config_option_row(trimmed)
+            && let Some(opt) = ConfigOptionItem::from_markdown_row(trimmed)
         {
             sec.options.push(opt);
         }
@@ -195,28 +201,32 @@ impl MarkdownParseState {
     }
 }
 
-pub(crate) fn parse_markdown_content(content: &str) -> ApiManifest {
-    let mut state = MarkdownParseState::new();
-    for line in content.lines() {
-        state.parse_line(line);
+impl ApiManifest {
+    pub(crate) fn parse_markdown(content: &str) -> Self {
+        let mut state = MarkdownParseState::new();
+        for line in content.lines() {
+            state.parse_line(line);
+        }
+        state.into_manifest()
     }
-    state.into_manifest()
 }
 
-fn parse_lib_item_kind(subsection: &str, sig: &str) -> ItemKind {
-    match subsection {
-        "Structs" => ItemKind::Struct,
-        "Enums" => ItemKind::Enum,
-        "Functions" => ItemKind::Function,
-        "Methods" => ItemKind::Method,
-        "Traits" => ItemKind::Trait,
-        "Type Aliases" => ItemKind::TypeAlias,
-        "Re-exports" => ItemKind::Reexport,
-        _ => {
-            if sig.starts_with("pub static ") {
-                ItemKind::Static
-            } else {
-                ItemKind::Constant
+impl ItemKind {
+    fn from_markdown_section(subsection: &str, sig: &str) -> Self {
+        match subsection {
+            "Structs" => Self::Struct,
+            "Enums" => Self::Enum,
+            "Functions" => Self::Function,
+            "Methods" => Self::Method,
+            "Traits" => Self::Trait,
+            "Type Aliases" => Self::TypeAlias,
+            "Re-exports" => Self::Reexport,
+            _ => {
+                if sig.starts_with("pub static ") {
+                    Self::Static
+                } else {
+                    Self::Constant
+                }
             }
         }
     }
@@ -259,82 +269,86 @@ fn parse_lib_item_name(sig: &str) -> String {
         .to_string()
 }
 
-fn parse_cli_argument_row(trimmed: &str) -> Option<CliArgItem> {
-    let cols = split_markdown_cells(trimmed);
-    if cols.len() < 6 {
-        return None;
-    }
-    let flag_col = cols.get(1).map(String::as_str).unwrap_or_default();
-    let type_col = cols.get(2).map(|s| s.trim_matches('`')).unwrap_or_default();
-    let req_col = cols.get(3).map(String::as_str) == Some("Yes");
-    let def_col = match cols.get(4).map(String::as_str) {
-        Some("-" | "") | None => None,
-        Some(s) => Some(s.trim_matches('`').to_string()),
-    };
-    let desc_col = match cols.get(5).map(String::as_str) {
-        Some("-" | "") | None => None,
-        Some(s) => Some(s.to_string()),
-    };
-
-    let mut short = None;
-    let mut long = None;
-    let is_positional = !flag_col.contains('-');
-    for part in flag_col.split(',').map(|p| p.trim().trim_matches('`')) {
-        if let Some(l) = part.strip_prefix("--") {
-            let l_name = l.split_whitespace().next().unwrap_or(l);
-            long = Some(l_name.to_string());
-        } else if let Some(s) = part.strip_prefix('-') {
-            short = s.chars().next();
+impl CliArgItem {
+    fn from_markdown_row(trimmed: &str) -> Option<Self> {
+        let cols = split_markdown_cells(trimmed);
+        if cols.len() < 6 {
+            return None;
         }
-    }
-    let id = long
-        .clone()
-        .or_else(|| short.map(|c| c.to_string()))
-        .unwrap_or_else(|| flag_col.trim_matches('<').trim_matches('>').to_string());
+        let flag_col = cols.get(1).map(String::as_str).unwrap_or_default();
+        let type_col = cols.get(2).map(|s| s.trim_matches('`')).unwrap_or_default();
+        let req_col = cols.get(3).map(String::as_str) == Some("Yes");
+        let def_col = match cols.get(4).map(String::as_str) {
+            Some("-" | "") | None => None,
+            Some(s) => Some(s.trim_matches('`').to_string()),
+        };
+        let desc_col = match cols.get(5).map(String::as_str) {
+            Some("-" | "") | None => None,
+            Some(s) => Some(s.to_string()),
+        };
 
-    Some(CliArgItem {
-        id,
-        short,
-        long,
-        value_name: if type_col == "-" {
-            None
-        } else {
-            Some(type_col.to_string())
-        },
-        required: req_col,
-        default_value: def_col,
-        help: desc_col,
-        is_positional,
-    })
+        let mut short = None;
+        let mut long = None;
+        let is_positional = !flag_col.contains('-');
+        for part in flag_col.split(',').map(|p| p.trim().trim_matches('`')) {
+            if let Some(l) = part.strip_prefix("--") {
+                let l_name = l.split_whitespace().next().unwrap_or(l);
+                long = Some(l_name.to_string());
+            } else if let Some(s) = part.strip_prefix('-') {
+                short = s.chars().next();
+            }
+        }
+        let id = long
+            .clone()
+            .or_else(|| short.map(|c| c.to_string()))
+            .unwrap_or_else(|| flag_col.trim_matches('<').trim_matches('>').to_string());
+
+        Some(Self {
+            id,
+            short,
+            long,
+            value_name: if type_col == "-" {
+                None
+            } else {
+                Some(type_col.to_string())
+            },
+            required: req_col,
+            default_value: def_col,
+            help: desc_col,
+            is_positional,
+        })
+    }
 }
 
-fn parse_config_option_row(trimmed: &str) -> Option<ConfigOptionItem> {
-    let cols = split_markdown_cells(trimmed);
-    if cols.len() < 5 {
-        return None;
+impl ConfigOptionItem {
+    fn from_markdown_row(trimmed: &str) -> Option<Self> {
+        let cols = split_markdown_cells(trimmed);
+        if cols.len() < 5 {
+            return None;
+        }
+        let key = cols
+            .get(1)
+            .map(|s| s.trim_matches('`'))
+            .unwrap_or_default()
+            .to_string();
+        if key.is_empty() {
+            return None;
+        }
+        let val_type = cols
+            .get(2)
+            .map(|s| s.trim_matches('`'))
+            .unwrap_or_default()
+            .to_string();
+        let def_val = match cols.get(3).map(String::as_str) {
+            Some("-" | "`-`" | "") | None => None,
+            Some(s) => Some(s.trim_matches('`').to_string()),
+        };
+        let desc = match cols.get(4).map(String::as_str) {
+            Some("-" | "") | None => None,
+            Some(s) => Some(s.to_string()),
+        };
+        Some(Self::new(key, val_type, def_val, desc))
     }
-    let key = cols
-        .get(1)
-        .map(|s| s.trim_matches('`'))
-        .unwrap_or_default()
-        .to_string();
-    if key.is_empty() {
-        return None;
-    }
-    let val_type = cols
-        .get(2)
-        .map(|s| s.trim_matches('`'))
-        .unwrap_or_default()
-        .to_string();
-    let def_val = match cols.get(3).map(String::as_str) {
-        Some("-" | "`-`" | "") | None => None,
-        Some(s) => Some(s.trim_matches('`').to_string()),
-    };
-    let desc = match cols.get(4).map(String::as_str) {
-        Some("-" | "") | None => None,
-        Some(s) => Some(s.to_string()),
-    };
-    Some(ConfigOptionItem::new(key, val_type, def_val, desc))
 }
 
 fn split_markdown_cells(row: &str) -> Vec<String> {
