@@ -1,0 +1,19 @@
+[package]
+name = "api-manifest-derive"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+license = "MIT"
+repository = "https://github.com/drmartinwimmer/api-manifest"
+description = "Derive macros for api-manifest configuration traits"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "3.0", features = ["full", "extra-traits"] }
+
+[lints]
+workspace = true
