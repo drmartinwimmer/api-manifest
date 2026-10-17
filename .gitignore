@@ -1,0 +1,7 @@
+target/
+.direnv/
+fence-*
+*.sock
+result
+result*
+node-compile-cache/
