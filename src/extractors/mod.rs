@@ -7,21 +7,16 @@ pub(crate) mod library_format;
 
 pub(crate) use library::LibraryExtractor;
 
-impl ApiManifest {
-    /// High-level helper that auto-detects targets and extracts the public API manifest from a crate root.
-    pub(crate) fn extract_from_crate_inner(crate_root: &Path) -> std::io::Result<Self> {
-        let (name, version) = Self::extract_cargo_metadata(crate_root);
-        let mut manifest = Self::new(name, version);
+/// Package metadata extracted from `Cargo.toml`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CargoPackageMetadata {
+    pub(crate) name: String,
+    pub(crate) version: Option<String>,
+}
 
-        let lib_extractor = LibraryExtractor::new();
-        if let Some(lib_api) = lib_extractor.extract_from_crate(crate_root)? {
-            manifest = manifest.with_library(lib_api);
-        }
-
-        Ok(manifest)
-    }
-
-    pub(crate) fn extract_cargo_metadata(crate_root: &Path) -> (String, Option<String>) {
+impl CargoPackageMetadata {
+    /// Extracts package name and version from a crate root's `Cargo.toml`.
+    pub(crate) fn from_crate_root(crate_root: &Path) -> Self {
         let cargo_toml = crate_root.join("Cargo.toml");
         let mut name = "unnamed".to_string();
         let mut version = None;
@@ -42,7 +37,22 @@ impl ApiManifest {
             }
         }
 
-        (name, version)
+        Self { name, version }
+    }
+}
+
+impl ApiManifest {
+    /// High-level helper that auto-detects targets and extracts the public API manifest from a crate root.
+    pub(crate) fn extract_from_crate_inner(crate_root: &Path) -> std::io::Result<Self> {
+        let metadata = CargoPackageMetadata::from_crate_root(crate_root);
+        let mut manifest = Self::new(metadata.name, metadata.version);
+
+        let lib_extractor = LibraryExtractor::new();
+        if let Some(lib_api) = lib_extractor.extract_from_crate(crate_root)? {
+            manifest = manifest.with_library(lib_api);
+        }
+
+        Ok(manifest)
     }
 }
 

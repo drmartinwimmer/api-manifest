@@ -152,6 +152,12 @@ pub(crate) struct ApiCheckArgs {
     quiet: bool,
 }
 
+/// A resolved crate directory and its corresponding manifest file to check.
+struct ManifestCheckTarget {
+    crate_dir: PathBuf,
+    manifest_path: PathBuf,
+}
+
 impl ApiCheckArgs {
     /// Creates a new `ApiCheckArgs` instance.
     pub(crate) fn new(manifest: PathBuf, fail_on: ApiFailOn, quiet: bool) -> Self {
@@ -178,48 +184,26 @@ impl ApiCheckArgs {
 
     /// Executes the API manifest drift check command.
     pub(crate) fn run(self) -> Result<(), ApiManifestError> {
-        let target_dir = self.path.unwrap_or_else(|| PathBuf::from("."));
+        let target_dir = self.path.as_deref().unwrap_or_else(|| Path::new("."));
         if !target_dir.exists() {
-            return Err(ApiManifestError::PathNotFound(target_dir));
+            return Err(ApiManifestError::PathNotFound(target_dir.to_path_buf()));
         }
 
-        let target_manifest = if self.manifest.is_absolute() {
-            self.manifest.clone()
-        } else {
-            target_dir.join(&self.manifest)
-        };
-
-        let manifests_to_check = if target_manifest.exists() {
-            vec![(target_dir.clone(), target_manifest)]
-        } else if self.manifest == Path::new("API.md") {
-            let found = Self::find_api_manifests(&target_dir);
-            if found.is_empty() {
-                return Ok(());
-            }
-            found
-                .into_iter()
-                .map(|m| {
-                    let crate_dir = m.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
-                    (crate_dir, m)
-                })
-                .collect()
-        } else {
-            return Err(ApiManifestError::ManifestNotFound(target_manifest));
-        };
+        let targets = self.resolve_manifest_targets(target_dir)?;
 
         let mut total_drift = 0;
         let mut total_breaking = 0;
         let mut any_drift = false;
         let mut any_breaking = false;
 
-        for (crate_dir, manifest_path) in manifests_to_check {
-            let baseline = ApiManifest::read_from_file(&manifest_path)?;
-            let active = ApiManifest::extract_from_crate(&crate_dir)?;
+        for target in targets {
+            let baseline = ApiManifest::read_from_file(&target.manifest_path)?;
+            let active = ApiManifest::extract_from_crate(&target.crate_dir)?;
             let report = active.diff(&baseline);
 
             if !self.quiet && !report.is_clean() {
                 let output_format = self.format.unwrap_or(OutputFormat::Console);
-                let diags = report.to_diagnostics(&manifest_path.display().to_string());
+                let diags = report.to_diagnostics(&target.manifest_path.display().to_string());
                 let diag_report = DiagnosticReport::new(diags);
                 diag_report.render(output_format, &mut std::io::stderr())?;
             }
@@ -247,6 +231,41 @@ impl ApiCheckArgs {
         }
 
         Ok(())
+    }
+
+    fn resolve_manifest_targets(
+        &self,
+        target_dir: &Path,
+    ) -> Result<Vec<ManifestCheckTarget>, ApiManifestError> {
+        let target_manifest = if self.manifest.is_absolute() {
+            self.manifest.clone()
+        } else {
+            target_dir.join(&self.manifest)
+        };
+
+        if target_manifest.exists() {
+            Ok(vec![ManifestCheckTarget {
+                crate_dir: target_dir.to_path_buf(),
+                manifest_path: target_manifest,
+            }])
+        } else if self.manifest == Path::new("API.md") {
+            let found = Self::find_api_manifests(target_dir);
+            Ok(found
+                .into_iter()
+                .map(|manifest_path| {
+                    let crate_dir = manifest_path
+                        .parent()
+                        .unwrap_or_else(|| Path::new("."))
+                        .to_path_buf();
+                    ManifestCheckTarget {
+                        crate_dir,
+                        manifest_path,
+                    }
+                })
+                .collect())
+        } else {
+            Err(ApiManifestError::ManifestNotFound(target_manifest))
+        }
     }
 
     fn find_api_manifests(root: &Path) -> Vec<PathBuf> {
