@@ -55,7 +55,9 @@ jobs:
         run: cargo audit
 
       - name: Verify package & metadata
-        run: cargo metadata --format-version 1 --no-deps > /dev/null
+        run: |
+          cargo metadata --format-version 1 --no-deps > /dev/null
+          cargo publish --dry-run --workspace
 
   test:
     name: Unit & Integration Tests
