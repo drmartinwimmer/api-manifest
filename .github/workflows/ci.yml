@@ -45,6 +45,9 @@ jobs:
       - name: Run Purist AST linter
         run: purist
 
+      - name: Check API manifest drift
+        run: cargo run -- check
+
       - name: Check TOML formatting (Taplo)
         run: taplo fmt --check
 

@@ -79,7 +79,8 @@ pub fn format_markdown(manifest: &ApiManifest) -> String {
         format_config_markdown(&mut out, config, section_idx);
     }
 
-    out
+    let trimmed = out.trim_end();
+    format!("{trimmed}\n")
 }
 
 fn format_library_markdown(out: &mut String, lib: &LibraryApi, section_idx: usize) {
@@ -126,7 +127,7 @@ fn format_section(out: &mut String, title: &str, items: &[&LibraryItem]) {
     for item in items {
         if let Some(ref doc) = item.doc {
             let first_line = doc.lines().next().unwrap_or_default();
-            out.push_str(&format!("- `{}` — *{}*\n", item.signature, first_line));
+            out.push_str(&format!("- `{}` — _{first_line}_\n", item.signature));
         } else {
             out.push_str(&format!("- `{}`\n", item.signature));
         }
