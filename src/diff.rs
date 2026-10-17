@@ -7,50 +7,36 @@ use std::collections::{HashMap, HashSet};
 
 impl ApiManifest {
     pub(crate) fn diff_inner(&self, baseline: &Self) -> ApiDriftReport {
-        let mut additions = Vec::new();
-        let mut removals = Vec::new();
-        let mut modifications = Vec::new();
+        let mut report = ApiDriftReport::default();
 
         let empty_lib = LibraryApi::default();
         let active_lib = self.library.as_ref().unwrap_or(&empty_lib);
         let base_lib = baseline.library.as_ref().unwrap_or(&empty_lib);
-        active_lib.diff(base_lib, &mut additions, &mut removals, &mut modifications);
+        report.extend(active_lib.diff(base_lib));
 
         let empty_cli = CliApi::default();
         let active_cli = self.cli.as_ref().unwrap_or(&empty_cli);
         let base_cli = baseline.cli.as_ref().unwrap_or(&empty_cli);
-        active_cli.diff(base_cli, &mut additions, &mut removals, &mut modifications);
+        report.extend(active_cli.diff(base_cli));
 
         let empty_http = HttpApi::default();
         let active_http = self.http.as_ref().unwrap_or(&empty_http);
         let base_http = baseline.http.as_ref().unwrap_or(&empty_http);
-        active_http.diff(base_http, &mut additions, &mut removals, &mut modifications);
+        report.extend(active_http.diff(base_http));
 
         let empty_cfg = ConfigApi::default();
         let active_cfg = self.config.as_ref().unwrap_or(&empty_cfg);
         let base_cfg = baseline.config.as_ref().unwrap_or(&empty_cfg);
-        active_cfg.diff(base_cfg, &mut additions, &mut removals, &mut modifications);
+        report.extend(active_cfg.diff(base_cfg));
 
-        additions.sort();
-        removals.sort();
-        modifications.sort();
-
-        ApiDriftReport {
-            additions,
-            removals,
-            modifications,
-        }
+        report.sort();
+        report
     }
 }
 
 impl LibraryApi {
-    fn diff(
-        &self,
-        baseline: &Self,
-        additions: &mut Vec<DriftItem>,
-        removals: &mut Vec<DriftItem>,
-        modifications: &mut Vec<DriftItem>,
-    ) {
+    pub(crate) fn diff(&self, baseline: &Self) -> ApiDriftReport {
+        let mut report = ApiDriftReport::default();
         let active_map: HashMap<&str, &LibraryItem> =
             self.items.iter().map(|i| (i.path.as_str(), i)).collect();
         let base_map: HashMap<&str, &LibraryItem> = baseline
@@ -62,7 +48,7 @@ impl LibraryApi {
         for (path, base_item) in &base_map {
             if let Some(active_item) = active_map.get(path) {
                 if base_item.signature != active_item.signature {
-                    modifications.push(DriftItem::new(
+                    report.add_modification(DriftItem::new(
                         DriftSurface::Library,
                         base_item.name.clone(),
                         format!(
@@ -75,7 +61,7 @@ impl LibraryApi {
                     ));
                 }
             } else {
-                removals.push(DriftItem::new(
+                report.add_removal(DriftItem::new(
                     DriftSurface::Library,
                     base_item.name.clone(),
                     format!("Public item '{}' removed", base_item.signature),
@@ -88,7 +74,7 @@ impl LibraryApi {
 
         for (path, active_item) in &active_map {
             if !base_map.contains_key(path) {
-                additions.push(DriftItem::new(
+                report.add_addition(DriftItem::new(
                     DriftSurface::Library,
                     active_item.name.clone(),
                     format!("New public item '{}'", active_item.signature),
@@ -98,17 +84,14 @@ impl LibraryApi {
                 ));
             }
         }
+
+        report
     }
 }
 
 impl CliApi {
-    fn diff(
-        &self,
-        baseline: &Self,
-        additions: &mut Vec<DriftItem>,
-        removals: &mut Vec<DriftItem>,
-        modifications: &mut Vec<DriftItem>,
-    ) {
+    pub(crate) fn diff(&self, baseline: &Self) -> ApiDriftReport {
+        let mut report = ApiDriftReport::default();
         let active_cmds: HashMap<&str, &CliCommandItem> =
             self.commands.iter().map(|c| (c.name.as_str(), c)).collect();
         let base_cmds: HashMap<&str, &CliCommandItem> = baseline
@@ -119,9 +102,9 @@ impl CliApi {
 
         for (name, base_cmd) in &base_cmds {
             if let Some(active_cmd) = active_cmds.get(name) {
-                active_cmd.diff(base_cmd, additions, removals, modifications);
+                report.extend(active_cmd.diff(base_cmd));
             } else {
-                removals.push(DriftItem::new(
+                report.add_removal(DriftItem::new(
                     DriftSurface::Cli,
                     (*name).to_string(),
                     "CLI command removed".to_string(),
@@ -134,7 +117,7 @@ impl CliApi {
 
         for (name, active_cmd) in &active_cmds {
             if !base_cmds.contains_key(name) {
-                additions.push(DriftItem::new(
+                report.add_addition(DriftItem::new(
                     DriftSurface::Cli,
                     active_cmd.name.clone(),
                     "New CLI command introduced".to_string(),
@@ -144,17 +127,14 @@ impl CliApi {
                 ));
             }
         }
+
+        report
     }
 }
 
 impl CliCommandItem {
-    fn diff(
-        &self,
-        base_cmd: &Self,
-        additions: &mut Vec<DriftItem>,
-        removals: &mut Vec<DriftItem>,
-        modifications: &mut Vec<DriftItem>,
-    ) {
+    fn diff(&self, base_cmd: &Self) -> ApiDriftReport {
+        let mut report = ApiDriftReport::default();
         let active_args: HashMap<&str, &CliArgItem> =
             self.args.iter().map(|a| (a.id.as_str(), a)).collect();
         let base_args: HashMap<&str, &CliArgItem> =
@@ -163,7 +143,7 @@ impl CliCommandItem {
         for (id, base_arg) in &base_args {
             if let Some(active_arg) = active_args.get(id) {
                 if !base_arg.required && active_arg.required && active_arg.default_value.is_none() {
-                    modifications.push(DriftItem::new(
+                    report.add_modification(DriftItem::new(
                         DriftSurface::Cli,
                         format!("{} --{}", base_cmd.name, id),
                         "Previously optional argument is now required without a default"
@@ -174,7 +154,7 @@ impl CliCommandItem {
                     ));
                 }
             } else {
-                removals.push(DriftItem::new(
+                report.add_removal(DriftItem::new(
                     DriftSurface::Cli,
                     format!("{} --{}", base_cmd.name, id),
                     "CLI argument or flag removed".to_string(),
@@ -188,7 +168,7 @@ impl CliCommandItem {
         for (id, active_arg) in &active_args {
             if !base_args.contains_key(id) {
                 if active_arg.required && active_arg.default_value.is_none() {
-                    modifications.push(DriftItem::new(
+                    report.add_modification(DriftItem::new(
                         DriftSurface::Cli,
                         format!("{} --{}", base_cmd.name, id),
                         "New required CLI argument without a default is a breaking change"
@@ -198,7 +178,7 @@ impl CliCommandItem {
                         None,
                     ));
                 } else {
-                    additions.push(DriftItem::new(
+                    report.add_addition(DriftItem::new(
                         DriftSurface::Cli,
                         format!("{} --{}", base_cmd.name, id),
                         "New CLI argument or flag added".to_string(),
@@ -209,17 +189,14 @@ impl CliCommandItem {
                 }
             }
         }
+
+        report
     }
 }
 
 impl HttpApi {
-    fn diff(
-        &self,
-        baseline: &Self,
-        additions: &mut Vec<DriftItem>,
-        removals: &mut Vec<DriftItem>,
-        modifications: &mut Vec<DriftItem>,
-    ) {
+    pub(crate) fn diff(&self, baseline: &Self) -> ApiDriftReport {
+        let mut report = ApiDriftReport::default();
         let active_endpoints: HashSet<(&str, &str)> = self
             .endpoints
             .iter()
@@ -233,7 +210,7 @@ impl HttpApi {
 
         for (method, path) in &base_endpoints {
             if !active_endpoints.contains(&(*method, *path)) {
-                removals.push(DriftItem::new(
+                report.add_removal(DriftItem::new(
                     DriftSurface::Http,
                     format!("{method} {path}"),
                     "HTTP route removed".to_string(),
@@ -246,7 +223,7 @@ impl HttpApi {
 
         for (method, path) in &active_endpoints {
             if !base_endpoints.contains(&(*method, *path)) {
-                additions.push(DriftItem::new(
+                report.add_addition(DriftItem::new(
                     DriftSurface::Http,
                     format!("{method} {path}"),
                     "New HTTP route introduced".to_string(),
@@ -268,7 +245,7 @@ impl HttpApi {
                 && base_ep.request_type != active_ep.request_type
                 && base_ep.request_type.is_some()
             {
-                modifications.push(DriftItem::new(
+                report.add_modification(DriftItem::new(
                     DriftSurface::Http,
                     format!("{} {}", active_ep.method, active_ep.path),
                     format!(
@@ -281,17 +258,14 @@ impl HttpApi {
                 ));
             }
         }
+
+        report
     }
 }
 
 impl ConfigApi {
-    fn diff(
-        &self,
-        baseline: &Self,
-        additions: &mut Vec<DriftItem>,
-        removals: &mut Vec<DriftItem>,
-        modifications: &mut Vec<DriftItem>,
-    ) {
+    pub(crate) fn diff(&self, baseline: &Self) -> ApiDriftReport {
+        let mut report = ApiDriftReport::default();
         let active_sec_map: HashMap<&str, &ConfigSectionItem> = self
             .sections
             .iter()
@@ -305,9 +279,9 @@ impl ConfigApi {
 
         for (sec_name, base_sec) in &base_sec_map {
             if let Some(active_sec) = active_sec_map.get(sec_name) {
-                active_sec.diff_options(base_sec, sec_name, additions, removals, modifications);
+                report.extend(active_sec.diff_options(base_sec, sec_name));
             } else {
-                removals.push(DriftItem::new(
+                report.add_removal(DriftItem::new(
                     DriftSurface::Config,
                     (*sec_name).to_string(),
                     format!("Configuration section '{sec_name}' removed"),
@@ -320,7 +294,7 @@ impl ConfigApi {
 
         for sec_name in active_sec_map.keys() {
             if !base_sec_map.contains_key(sec_name) {
-                additions.push(DriftItem::new(
+                report.add_addition(DriftItem::new(
                     DriftSurface::Config,
                     (*sec_name).to_string(),
                     format!("Configuration section '{sec_name}' added"),
@@ -330,18 +304,14 @@ impl ConfigApi {
                 ));
             }
         }
+
+        report
     }
 }
 
 impl ConfigSectionItem {
-    fn diff_options(
-        &self,
-        base_sec: &Self,
-        section_name: &str,
-        additions: &mut Vec<DriftItem>,
-        removals: &mut Vec<DriftItem>,
-        modifications: &mut Vec<DriftItem>,
-    ) {
+    fn diff_options(&self, base_sec: &Self, section_name: &str) -> ApiDriftReport {
+        let mut report = ApiDriftReport::default();
         let active_opts: HashMap<&str, &ConfigOptionItem> =
             self.options.iter().map(|o| (o.key.as_str(), o)).collect();
         let base_opts: HashMap<&str, &ConfigOptionItem> = base_sec
@@ -354,7 +324,7 @@ impl ConfigSectionItem {
             let opt_name = format!("{section_name}::{key}");
             if let Some(active_opt) = active_opts.get(key) {
                 if base_opt.value_type != active_opt.value_type {
-                    modifications.push(DriftItem::new(
+                    report.add_modification(DriftItem::new(
                         DriftSurface::Config,
                         opt_name,
                         format!(
@@ -366,7 +336,7 @@ impl ConfigSectionItem {
                         Some(active_opt.value_type.clone()),
                     ));
                 } else if base_opt.default_value != active_opt.default_value {
-                    modifications.push(DriftItem::new(
+                    report.add_modification(DriftItem::new(
                         DriftSurface::Config,
                         opt_name,
                         format!(
@@ -379,7 +349,7 @@ impl ConfigSectionItem {
                     ));
                 }
             } else {
-                removals.push(DriftItem::new(
+                report.add_removal(DriftItem::new(
                     DriftSurface::Config,
                     opt_name,
                     format!("Configuration option '{key}' removed from {section_name}"),
@@ -393,7 +363,7 @@ impl ConfigSectionItem {
         for (key, active_opt) in &active_opts {
             if !base_opts.contains_key(key) {
                 let opt_name = format!("{section_name}::{key}");
-                additions.push(DriftItem::new(
+                report.add_addition(DriftItem::new(
                     DriftSurface::Config,
                     opt_name,
                     format!("Configuration option '{key}' added to {section_name}"),
@@ -403,6 +373,8 @@ impl ConfigSectionItem {
                 ));
             }
         }
+
+        report
     }
 }
 

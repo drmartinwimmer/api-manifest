@@ -65,6 +65,35 @@ pub struct ApiDriftReport {
 }
 
 impl ApiDriftReport {
+    /// Appends an addition drift item to this report.
+    pub(crate) fn add_addition(&mut self, item: DriftItem) {
+        self.additions.push(item);
+    }
+
+    /// Appends a removal drift item to this report.
+    pub(crate) fn add_removal(&mut self, item: DriftItem) {
+        self.removals.push(item);
+    }
+
+    /// Appends a modification drift item to this report.
+    pub(crate) fn add_modification(&mut self, item: DriftItem) {
+        self.modifications.push(item);
+    }
+
+    /// Appends all drift items from `other` into this report.
+    pub(crate) fn extend(&mut self, other: Self) {
+        self.additions.extend(other.additions);
+        self.removals.extend(other.removals);
+        self.modifications.extend(other.modifications);
+    }
+
+    /// Sorts all drift item categories deterministically.
+    pub(crate) fn sort(&mut self) {
+        self.additions.sort();
+        self.removals.sort();
+        self.modifications.sort();
+    }
+
     /// Returns true if there is no drift detected.
     pub fn is_clean(&self) -> bool {
         self.additions.is_empty() && self.removals.is_empty() && self.modifications.is_empty()
