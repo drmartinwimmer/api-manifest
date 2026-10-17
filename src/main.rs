@@ -1,4 +1,4 @@
-use api_manifest::ApiManifestCommand;
+use api_manifest::{ApiManifestCommand, ApiManifestError};
 use clap::Parser;
 use std::process::ExitCode;
 
@@ -17,6 +17,7 @@ impl Cli {
     fn run(self) -> ExitCode {
         match self.cmd.run() {
             Ok(()) => ExitCode::SUCCESS,
+            Err(ApiManifestError::DriftDetected { .. }) => ExitCode::from(1),
             Err(err) => {
                 eprintln!("Error: {err}");
                 ExitCode::from(2)

@@ -1,13 +1,25 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "plugins": [
+    {
+      "type": "cargo-workspace"
+    },
+    {
+      "type": "linked-versions",
+      "groupName": "api-manifest-workspace",
+      "components": ["api-manifest", "api-manifest-derive"]
+    }
+  ],
   "packages": {
     ".": {
       "release-type": "rust",
-      "package-name": "api-manifest"
+      "package-name": "api-manifest",
+      "component": "api-manifest"
     },
     "crates/api-manifest-derive": {
       "release-type": "rust",
-      "package-name": "api-manifest-derive"
+      "package-name": "api-manifest-derive",
+      "component": "api-manifest-derive"
     }
   }
 }

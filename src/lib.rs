@@ -2,9 +2,27 @@ extern crate self as api_manifest;
 
 mod commands;
 mod config_file;
+mod diagnostics;
+mod diff;
+mod diff_report;
+mod extractors;
+mod manifest;
+mod manifest_parse;
+mod model;
 
-pub use commands::{ApiManifestCommand, ApiManifestError};
+pub use commands::{
+    ApiCheckArgs, ApiDumpArgs, ApiFailOn, ApiManifestCommand, ApiManifestError, ApiSubcommand,
+};
 pub use config_file::ConfigFile;
+pub use diagnostics::{Diagnostic, DiagnosticReport, OutputFormat, ReportSummary, Severity, Span};
+pub use diff::diff_manifests;
+pub use diff_report::{ApiDriftReport, DriftItem, DriftSurface};
+pub use extractors::extract_crate_api;
+pub use manifest::{ManifestError, ManifestFormat, format_markdown, parse_str, read_from_file};
+pub use model::{
+    ApiManifest, CliApi, CliArgItem, CliCommandItem, ConfigApi, ConfigOptionItem,
+    ConfigSectionItem, HttpApi, HttpEndpointItem, ItemKind, LibraryApi, LibraryItem,
+};
 
 #[cfg(test)]
 mod tests {
