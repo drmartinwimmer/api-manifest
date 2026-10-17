@@ -1,6 +1,6 @@
 use crate::cli_api::CliApi;
 use crate::diff_report::ApiDriftReport;
-use crate::extractors::{CargoPackageMetadata, CliExtractor, LibraryExtractor};
+use crate::extractors::{CargoPackageMetadata, CliExtractor, HttpExtractor, LibraryExtractor};
 use crate::http_api::HttpApi;
 use crate::library_api::LibraryApi;
 use crate::markdown_parser::MarkdownParseState;
@@ -117,6 +117,11 @@ impl ApiManifest {
         let cli_extractor = CliExtractor::new();
         if let Some(cli_api) = cli_extractor.extract_from_crate(crate_root)? {
             manifest = manifest.with_cli(cli_api);
+        }
+
+        let http_extractor = HttpExtractor::new();
+        if let Some(http_api) = http_extractor.extract_from_crate(crate_root)? {
+            manifest = manifest.with_http(http_api);
         }
 
         Ok(manifest)

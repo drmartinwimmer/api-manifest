@@ -5,10 +5,12 @@ use std::path::Path;
 
 pub(crate) mod cli;
 pub(crate) mod cli_args;
+pub(crate) mod http;
 pub(crate) mod library;
 pub(crate) mod library_format;
 
 pub(crate) use cli::CliExtractor;
+pub(crate) use http::HttpExtractor;
 pub(crate) use library::LibraryExtractor;
 
 #[derive(Debug, Default, Deserialize)]
