@@ -1,10 +1,11 @@
-use crate::model::{
-    ApiManifest, CliApi, CliArgItem, CliCommandItem, ConfigApi, ConfigOptionItem,
-    ConfigSectionItem, HttpApi, HttpEndpointItem, ItemKind, LibraryApi, LibraryItem,
-};
+use crate::cli_api::{CliApi, CliArgItem, CliCommandItem};
+use crate::http_api::{HttpApi, HttpEndpointItem};
+use crate::library_api::{ItemKind, LibraryApi, LibraryItem};
+use crate::manifest::ApiManifest;
+use crate::schema_api::{ConfigApi, ConfigOptionItem, ConfigSectionItem};
 
 #[derive(Default)]
-struct MarkdownParseState {
+pub(crate) struct MarkdownParseState {
     name: String,
     version: Option<String>,
     lib_items: Vec<LibraryItem>,
@@ -23,6 +24,14 @@ impl MarkdownParseState {
             name: "unnamed".to_string(),
             ..Self::default()
         }
+    }
+
+    pub(crate) fn parse_str(content: &str) -> ApiManifest {
+        let mut state = Self::new();
+        for line in content.lines() {
+            state.parse_line(line);
+        }
+        state.into_manifest()
     }
 
     fn flush_pending(&mut self) {
@@ -87,12 +96,49 @@ impl MarkdownParseState {
             && let Some(sig) = extract_code_span(trimmed)
         {
             let kind = ItemKind::from_markdown_section(&self.current_subsection, &sig);
-            let item_name = parse_lib_item_name(&sig);
+            let item_name = Self::parse_lib_item_name(&sig);
             let mod_prefix = self.name.replace('-', "_");
             let path = format!("{mod_prefix}::{item_name}");
             self.lib_items
                 .push(LibraryItem::new(kind, item_name, path, sig, None));
         }
+    }
+
+    fn parse_lib_item_name(sig: &str) -> String {
+        if let Some(rest) = sig.strip_prefix("pub use ") {
+            return rest
+                .strip_suffix(';')
+                .and_then(|s| s.split("::").last())
+                .unwrap_or("unknown")
+                .to_string();
+        }
+        if let Some(rest) = sig.strip_prefix("impl ") {
+            return rest
+                .split_whitespace()
+                .next()
+                .unwrap_or("unknown")
+                .to_string();
+        }
+        let word = sig
+            .split_whitespace()
+            .find(|w| {
+                ![
+                    "pub", "fn", "async", "const", "unsafe", "struct", "enum", "trait", "type",
+                    "static", "mut",
+                ]
+                .contains(w)
+            })
+            .unwrap_or("unknown");
+        word.split('(')
+            .next()
+            .unwrap_or(word)
+            .split('<')
+            .next()
+            .unwrap_or(word)
+            .trim_end_matches('{')
+            .trim_end_matches(';')
+            .trim_end_matches(':')
+            .to_string()
     }
 
     fn parse_cli_line(&mut self, trimmed: &str) {
@@ -201,157 +247,49 @@ impl MarkdownParseState {
     }
 }
 
-impl ApiManifest {
-    pub(crate) fn parse_markdown(content: &str) -> Self {
-        let mut state = MarkdownParseState::new();
-        for line in content.lines() {
-            state.parse_line(line);
-        }
-        state.into_manifest()
-    }
-}
+pub(crate) fn format_aligned_table(out: &mut String, headers: &[&str], rows: &[Vec<String>]) {
+    let col_count = headers.len();
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
 
-impl ItemKind {
-    fn from_markdown_section(subsection: &str, sig: &str) -> Self {
-        match subsection {
-            "Structs" => Self::Struct,
-            "Enums" => Self::Enum,
-            "Functions" => Self::Function,
-            "Methods" => Self::Method,
-            "Traits" => Self::Trait,
-            "Type Aliases" => Self::TypeAlias,
-            "Re-exports" => Self::Reexport,
-            _ => {
-                if sig.starts_with("pub static ") {
-                    Self::Static
-                } else {
-                    Self::Constant
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            if let Some(w) = widths.get_mut(i) {
+                let len = cell.chars().count();
+                if len > *w {
+                    *w = len;
                 }
             }
         }
     }
+
+    out.push('|');
+    for (i, h) in headers.iter().enumerate() {
+        let w = widths.get(i).copied().unwrap_or(3).max(3);
+        out.push_str(&format!(" {h:<w$} |"));
+    }
+    out.push('\n');
+
+    out.push('|');
+    for i in 0..col_count {
+        let w = widths.get(i).copied().unwrap_or(3).max(3);
+        let dashes = "-".repeat(w);
+        out.push_str(&format!(" {dashes} |"));
+    }
+    out.push('\n');
+
+    for row in rows {
+        out.push('|');
+        for i in 0..col_count {
+            let cell = row.get(i).map(String::as_str).unwrap_or_default();
+            let w = widths.get(i).copied().unwrap_or(3).max(3);
+            out.push_str(&format!(" {cell:<w$} |"));
+        }
+        out.push('\n');
+    }
+    out.push('\n');
 }
 
-fn parse_lib_item_name(sig: &str) -> String {
-    if let Some(rest) = sig.strip_prefix("pub use ") {
-        return rest
-            .strip_suffix(';')
-            .and_then(|s| s.split("::").last())
-            .unwrap_or("unknown")
-            .to_string();
-    }
-    if let Some(rest) = sig.strip_prefix("impl ") {
-        return rest
-            .split_whitespace()
-            .next()
-            .unwrap_or("unknown")
-            .to_string();
-    }
-    let word = sig
-        .split_whitespace()
-        .find(|w| {
-            ![
-                "pub", "fn", "async", "const", "unsafe", "struct", "enum", "trait", "type",
-                "static", "mut",
-            ]
-            .contains(w)
-        })
-        .unwrap_or("unknown");
-    word.split('(')
-        .next()
-        .unwrap_or(word)
-        .split('<')
-        .next()
-        .unwrap_or(word)
-        .trim_end_matches('{')
-        .trim_end_matches(';')
-        .trim_end_matches(':')
-        .to_string()
-}
-
-impl CliArgItem {
-    fn from_markdown_row(trimmed: &str) -> Option<Self> {
-        let cols = split_markdown_cells(trimmed);
-        if cols.len() < 6 {
-            return None;
-        }
-        let flag_col = cols.get(1).map(String::as_str).unwrap_or_default();
-        let type_col = cols.get(2).map(|s| s.trim_matches('`')).unwrap_or_default();
-        let req_col = cols.get(3).map(String::as_str) == Some("Yes");
-        let def_col = match cols.get(4).map(String::as_str) {
-            Some("-" | "") | None => None,
-            Some(s) => Some(s.trim_matches('`').to_string()),
-        };
-        let desc_col = match cols.get(5).map(String::as_str) {
-            Some("-" | "") | None => None,
-            Some(s) => Some(s.to_string()),
-        };
-
-        let mut short = None;
-        let mut long = None;
-        let is_positional = !flag_col.contains('-');
-        for part in flag_col.split(',').map(|p| p.trim().trim_matches('`')) {
-            if let Some(l) = part.strip_prefix("--") {
-                let l_name = l.split_whitespace().next().unwrap_or(l);
-                long = Some(l_name.to_string());
-            } else if let Some(s) = part.strip_prefix('-') {
-                short = s.chars().next();
-            }
-        }
-        let id = long
-            .clone()
-            .or_else(|| short.map(|c| c.to_string()))
-            .unwrap_or_else(|| flag_col.trim_matches('<').trim_matches('>').to_string());
-
-        Some(Self {
-            id,
-            short,
-            long,
-            value_name: if type_col == "-" {
-                None
-            } else {
-                Some(type_col.to_string())
-            },
-            required: req_col,
-            default_value: def_col,
-            help: desc_col,
-            is_positional,
-        })
-    }
-}
-
-impl ConfigOptionItem {
-    fn from_markdown_row(trimmed: &str) -> Option<Self> {
-        let cols = split_markdown_cells(trimmed);
-        if cols.len() < 5 {
-            return None;
-        }
-        let key = cols
-            .get(1)
-            .map(|s| s.trim_matches('`'))
-            .unwrap_or_default()
-            .to_string();
-        if key.is_empty() {
-            return None;
-        }
-        let val_type = cols
-            .get(2)
-            .map(|s| s.trim_matches('`'))
-            .unwrap_or_default()
-            .to_string();
-        let def_val = match cols.get(3).map(String::as_str) {
-            Some("-" | "`-`" | "") | None => None,
-            Some(s) => Some(s.trim_matches('`').to_string()),
-        };
-        let desc = match cols.get(4).map(String::as_str) {
-            Some("-" | "") | None => None,
-            Some(s) => Some(s.to_string()),
-        };
-        Some(Self::new(key, val_type, def_val, desc))
-    }
-}
-
-fn split_markdown_cells(row: &str) -> Vec<String> {
+pub(crate) fn split_markdown_cells(row: &str) -> Vec<String> {
     let mut cells = Vec::new();
     let mut current = String::new();
     let mut chars = row.chars().peekable();

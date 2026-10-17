@@ -1,6 +1,5 @@
 use crate::diagnostics::{DiagnosticReport, OutputFormat};
-use crate::manifest::{ManifestError, ManifestFormat};
-use crate::model::ApiManifest;
+use crate::manifest::{ApiManifest, ManifestError, ManifestFormat};
 use clap::{Args, Subcommand, ValueEnum};
 use std::fs;
 use std::path::{Path, PathBuf};

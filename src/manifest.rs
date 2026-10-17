@@ -1,6 +1,11 @@
-use crate::model::{
-    ApiManifest, CliApi, CliArgItem, ConfigApi, HttpApi, ItemKind, LibraryApi, LibraryItem,
-};
+use crate::cli_api::CliApi;
+use crate::diff_report::ApiDriftReport;
+use crate::extractors::{CargoPackageMetadata, LibraryExtractor};
+use crate::http_api::HttpApi;
+use crate::library_api::LibraryApi;
+use crate::markdown_parser::MarkdownParseState;
+use crate::schema_api::ConfigApi;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use toml::de;
@@ -45,8 +50,91 @@ pub enum ManifestError {
     MissingPackageSection,
 }
 
+/// Comprehensive public API manifest representing library, CLI, HTTP, and config surfaces.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiManifest {
+    /// Crate or project name
+    pub(crate) name: String,
+    /// Optional crate version
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) version: Option<String>,
+    /// Rust library API items
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) library: Option<LibraryApi>,
+    /// CLI command and argument items
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) cli: Option<CliApi>,
+    /// HTTP service endpoints
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) http: Option<HttpApi>,
+    /// Configuration file format specifications
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) config: Option<ConfigApi>,
+}
+
 impl ApiManifest {
-    pub(crate) fn format_markdown_inner(&self) -> String {
+    pub(crate) fn new(name: impl Into<String>, version: Option<String>) -> Self {
+        Self {
+            name: name.into(),
+            version,
+            library: None,
+            cli: None,
+            http: None,
+            config: None,
+        }
+    }
+
+    pub(crate) fn with_library(mut self, library: LibraryApi) -> Self {
+        self.library = Some(library);
+        self
+    }
+
+    pub(crate) fn with_cli(mut self, cli: CliApi) -> Self {
+        self.cli = Some(cli);
+        self
+    }
+
+    pub(crate) fn with_http(mut self, http: HttpApi) -> Self {
+        self.http = Some(http);
+        self
+    }
+
+    pub(crate) fn with_config(mut self, config: ConfigApi) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// Auto-detects targets and extracts the public API manifest from a crate root.
+    pub fn extract_from_crate(crate_root: &Path) -> Result<Self, ManifestError> {
+        let metadata = CargoPackageMetadata::from_crate_root(crate_root)?;
+        let mut manifest = Self::new(metadata.name, metadata.version);
+
+        let lib_extractor = LibraryExtractor::new();
+        if let Some(lib_api) = lib_extractor.extract_from_crate(crate_root)? {
+            manifest = manifest.with_library(lib_api);
+        }
+
+        Ok(manifest)
+    }
+
+    /// Reads and parses an `ApiManifest` from disk (supports Markdown or JSON).
+    pub fn read_from_file(path: &Path) -> Result<Self, ManifestError> {
+        let content = fs::read_to_string(path)?;
+        Self::parse_str(&content)
+    }
+
+    pub(crate) fn parse_str(content: &str) -> Result<Self, ManifestError> {
+        let trimmed = content.trim();
+
+        if trimmed.starts_with('{') {
+            return serde_json::from_str(trimmed).map_err(ManifestError::Json);
+        }
+
+        Ok(MarkdownParseState::parse_str(content))
+    }
+
+    /// Formats this `ApiManifest` as GitHub Flavored Markdown (`API.md`).
+    pub fn format_markdown(&self) -> String {
         let mut out = String::new();
         let version_suffix = self
             .version
@@ -85,247 +173,40 @@ impl ApiManifest {
         format!("{trimmed}\n")
     }
 
-    pub(crate) fn parse_str(content: &str) -> Result<Self, ManifestError> {
-        let trimmed = content.trim();
+    /// Diffs this active `ApiManifest` against a checked-in baseline manifest.
+    pub fn diff(&self, baseline: &Self) -> ApiDriftReport {
+        let mut report = ApiDriftReport::default();
 
-        if trimmed.starts_with('{') {
-            return serde_json::from_str(trimmed).map_err(ManifestError::Json);
-        }
+        let empty_lib = LibraryApi::default();
+        let active_lib = self.library.as_ref().unwrap_or(&empty_lib);
+        let base_lib = baseline.library.as_ref().unwrap_or(&empty_lib);
+        report.extend(active_lib.diff(base_lib));
 
-        Ok(Self::parse_markdown(content))
-    }
+        let empty_cli = CliApi::default();
+        let active_cli = self.cli.as_ref().unwrap_or(&empty_cli);
+        let base_cli = baseline.cli.as_ref().unwrap_or(&empty_cli);
+        report.extend(active_cli.diff(base_cli));
 
-    pub(crate) fn read_from_file_inner(path: &Path) -> Result<Self, ManifestError> {
-        let content = fs::read_to_string(path)?;
-        Self::parse_str(&content)
-    }
-}
+        let empty_http = HttpApi::default();
+        let active_http = self.http.as_ref().unwrap_or(&empty_http);
+        let base_http = baseline.http.as_ref().unwrap_or(&empty_http);
+        report.extend(active_http.diff(base_http));
 
-impl LibraryApi {
-    fn format_markdown(&self, out: &mut String, section_idx: usize) {
-        out.push_str(&format!("## {section_idx}. Library API\n\n"));
+        let empty_cfg = ConfigApi::default();
+        let active_cfg = self.config.as_ref().unwrap_or(&empty_cfg);
+        let base_cfg = baseline.config.as_ref().unwrap_or(&empty_cfg);
+        report.extend(active_cfg.diff(base_cfg));
 
-        let mut functions = Vec::new();
-        let mut methods = Vec::new();
-        let mut structs = Vec::new();
-        let mut enums = Vec::new();
-        let mut traits = Vec::new();
-        let mut type_aliases = Vec::new();
-        let mut constants = Vec::new();
-        let mut reexports = Vec::new();
-
-        for item in &self.items {
-            match item.kind {
-                ItemKind::Function => functions.push(item),
-                ItemKind::Method => methods.push(item),
-                ItemKind::Struct => structs.push(item),
-                ItemKind::Field => {}
-                ItemKind::Enum => enums.push(item),
-                ItemKind::Trait => traits.push(item),
-                ItemKind::TypeAlias => type_aliases.push(item),
-                ItemKind::Constant | ItemKind::Static => constants.push(item),
-                ItemKind::Reexport => reexports.push(item),
-            }
-        }
-
-        Self::format_section(out, "Structs", &structs);
-        Self::format_section(out, "Enums", &enums);
-        Self::format_section(out, "Functions", &functions);
-        Self::format_section(out, "Methods", &methods);
-        Self::format_section(out, "Traits", &traits);
-        Self::format_section(out, "Type Aliases", &type_aliases);
-        Self::format_section(out, "Constants & Statics", &constants);
-        Self::format_section(out, "Re-exports", &reexports);
-    }
-
-    fn format_section(out: &mut String, title: &str, items: &[&LibraryItem]) {
-        if items.is_empty() {
-            return;
-        }
-        out.push_str(&format!("### {title}\n\n"));
-        for item in items {
-            if let Some(ref doc) = item.doc {
-                let first_line = doc.lines().next().unwrap_or_default();
-                out.push_str(&format!("- `{}` — _{first_line}_\n", item.signature));
-            } else {
-                out.push_str(&format!("- `{}`\n", item.signature));
-            }
-        }
-        out.push('\n');
-    }
-}
-
-fn format_aligned_table(out: &mut String, headers: &[&str], rows: &[Vec<String>]) {
-    let col_count = headers.len();
-    let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
-
-    for row in rows {
-        for (i, cell) in row.iter().enumerate() {
-            if let Some(w) = widths.get_mut(i) {
-                let len = cell.chars().count();
-                if len > *w {
-                    *w = len;
-                }
-            }
-        }
-    }
-
-    out.push('|');
-    for (i, h) in headers.iter().enumerate() {
-        let w = widths.get(i).copied().unwrap_or(3).max(3);
-        out.push_str(&format!(" {h:<w$} |"));
-    }
-    out.push('\n');
-
-    out.push('|');
-    for i in 0..col_count {
-        let w = widths.get(i).copied().unwrap_or(3).max(3);
-        let dashes = "-".repeat(w);
-        out.push_str(&format!(" {dashes} |"));
-    }
-    out.push('\n');
-
-    for row in rows {
-        out.push('|');
-        for i in 0..col_count {
-            let cell = row.get(i).map(String::as_str).unwrap_or_default();
-            let w = widths.get(i).copied().unwrap_or(3).max(3);
-            out.push_str(&format!(" {cell:<w$} |"));
-        }
-        out.push('\n');
-    }
-    out.push('\n');
-}
-
-impl CliApi {
-    fn format_markdown(&self, out: &mut String, section_idx: usize) {
-        if self.commands.is_empty() {
-            return;
-        }
-        out.push_str(&format!("## {section_idx}. CLI API\n\n"));
-
-        for cmd in &self.commands {
-            out.push_str(&format!("### `{}`\n\n", cmd.name));
-            if let Some(ref about) = cmd.about {
-                out.push_str(&format!("{about}\n\n"));
-            }
-
-            if !cmd.args.is_empty() {
-                let headers = [
-                    "Flag / Argument",
-                    "Type",
-                    "Required",
-                    "Default",
-                    "Description",
-                ];
-                let rows: Vec<Vec<String>> = cmd
-                    .args
-                    .iter()
-                    .map(|arg| {
-                        let flag_col = arg.format_flag_col();
-                        let type_col = format!("`{}`", arg.value_name.as_deref().unwrap_or("-"));
-                        let req_col = if arg.required { "Yes" } else { "No" }.to_string();
-                        let def_col = format!("`{}`", arg.default_value.as_deref().unwrap_or("-"));
-                        let desc_col = arg.help.as_deref().unwrap_or("-").to_string();
-                        vec![flag_col, type_col, req_col, def_col, desc_col]
-                    })
-                    .collect();
-                format_aligned_table(out, &headers, &rows);
-            }
-
-            if !cmd.subcommands.is_empty() {
-                out.push_str("**Subcommands:**\n\n");
-                for sub in &cmd.subcommands {
-                    out.push_str(&format!("- `{sub}`\n"));
-                }
-                out.push('\n');
-            }
-        }
-    }
-}
-
-impl CliArgItem {
-    fn format_flag_col(&self) -> String {
-        let mut parts = Vec::new();
-        if let Some(s) = self.short {
-            parts.push(format!("`-{s}`"));
-        }
-        if let Some(ref l) = self.long {
-            parts.push(format!("`--{l}`"));
-        }
-        if parts.is_empty() {
-            format!("`<{}>`", self.id.to_uppercase())
-        } else {
-            parts.join(", ")
-        }
-    }
-}
-
-impl HttpApi {
-    fn format_markdown(&self, out: &mut String, section_idx: usize) {
-        if self.endpoints.is_empty() {
-            return;
-        }
-        out.push_str(&format!("## {section_idx}. HTTP Endpoints\n\n"));
-        let headers = ["Method", "Path", "Handler", "Description"];
-        let rows: Vec<Vec<String>> = self
-            .endpoints
-            .iter()
-            .map(|ep| {
-                vec![
-                    format!("`{}`", ep.method),
-                    format!("`{}`", ep.path),
-                    format!("`{}`", ep.handler),
-                    ep.doc.as_deref().unwrap_or("-").to_string(),
-                ]
-            })
-            .collect();
-        format_aligned_table(out, &headers, &rows);
-    }
-}
-
-impl ConfigApi {
-    fn format_markdown(&self, out: &mut String, section_idx: usize) {
-        if self.sections.is_empty() {
-            return;
-        }
-        out.push_str(&format!("## {section_idx}. Configuration Formats\n\n"));
-
-        for sec in &self.sections {
-            out.push_str(&format!(
-                "### `{}` (_{}_)\n\n",
-                sec.section, sec.file_format
-            ));
-            if let Some(ref desc) = sec.doc {
-                out.push_str(&format!("{desc}\n\n"));
-            }
-
-            if !sec.options.is_empty() {
-                let headers = ["Key", "Value Type", "Default", "Description"];
-                let rows: Vec<Vec<String>> = sec
-                    .options
-                    .iter()
-                    .map(|opt| {
-                        let def_col = opt.default_value.as_deref().unwrap_or("-");
-                        let desc_col = opt.doc.as_deref().unwrap_or("-").to_string();
-                        let safe_val_type = opt.value_type.replace('|', "\\|");
-                        vec![
-                            format!("`{}`", opt.key),
-                            format!("`{safe_val_type}`"),
-                            format!("`{def_col}`"),
-                            desc_col,
-                        ]
-                    })
-                    .collect();
-                format_aligned_table(out, &headers, &rows);
-            }
-        }
+        report.sort();
+        report
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostics::Severity;
+    use crate::library_api::{ItemKind, LibraryApi, LibraryItem};
     use googletest::prelude::*;
 
     #[googletest::test]
@@ -400,6 +281,114 @@ mod tests {
             item.signature,
             eq("pub fn Greeter::new(msg: String) -> Self")
         );
+
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn diff_identical_manifests_is_clean() {
+        let manifest = ApiManifest::new("demo", Some("1.0.0".to_string()));
+        let report = manifest.diff(&manifest);
+        expect_that!(report.is_clean(), is_true());
+        expect_that!(report.has_breaking_changes(), is_false());
+        expect_that!(report.total_drift_count(), eq(0));
+    }
+
+    #[googletest::test]
+    fn diff_detects_library_item_removal_as_breaking() -> Result<(), Box<dyn std::error::Error>> {
+        let old_item = LibraryItem::new(
+            ItemKind::Function,
+            "old_fn",
+            "demo::old_fn",
+            "pub fn old_fn()",
+            None,
+        );
+        let baseline = ApiManifest::new("demo", Some("1.0.0".to_string()))
+            .with_library(LibraryApi::new(vec![old_item]));
+        let active =
+            ApiManifest::new("demo", Some("1.0.0".to_string())).with_library(LibraryApi::default());
+
+        let report = active.diff(&baseline);
+        expect_that!(report.is_clean(), is_false());
+        expect_that!(report.has_breaking_changes(), is_true());
+        expect_that!(report.removals.len(), eq(1));
+
+        let removal = report.removals.first().ok_or("removal missing")?;
+        expect_that!(removal.name, eq("old_fn"));
+        expect_that!(removal.is_breaking, is_true());
+
+        let diags = report.to_diagnostics("API.md");
+        expect_that!(diags.len(), eq(1));
+        let diag = diags.first().ok_or("diag missing")?;
+        expect_that!(diag.severity, eq(Severity::Error));
+        expect_that!(diag.rule, eq("api::drift::removal"));
+
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn diff_detects_library_item_addition_as_non_breaking() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let new_item = LibraryItem::new(
+            ItemKind::Function,
+            "new_fn",
+            "demo::new_fn",
+            "pub fn new_fn()",
+            None,
+        );
+        let baseline =
+            ApiManifest::new("demo", Some("1.0.0".to_string())).with_library(LibraryApi::default());
+        let active = ApiManifest::new("demo", Some("1.0.0".to_string()))
+            .with_library(LibraryApi::new(vec![new_item]));
+
+        let report = active.diff(&baseline);
+        expect_that!(report.is_clean(), is_false());
+        expect_that!(report.has_breaking_changes(), is_false());
+        expect_that!(report.additions.len(), eq(1));
+
+        let addition = report.additions.first().ok_or("addition missing")?;
+        expect_that!(addition.name, eq("new_fn"));
+        expect_that!(addition.is_breaking, is_false());
+
+        let diags = report.to_diagnostics("API.md");
+        expect_that!(diags.len(), eq(1));
+        let diag = diags.first().ok_or("diag missing")?;
+        expect_that!(diag.severity, eq(Severity::Warning));
+        expect_that!(diag.rule, eq("api::drift::addition"));
+
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn diff_detects_signature_modification_as_breaking() -> Result<(), Box<dyn std::error::Error>> {
+        let base_item = LibraryItem::new(
+            ItemKind::Function,
+            "compute",
+            "demo::compute",
+            "pub fn compute(x: i32) -> i32",
+            None,
+        );
+        let active_item = LibraryItem::new(
+            ItemKind::Function,
+            "compute",
+            "demo::compute",
+            "pub fn compute(x: i32, y: i32) -> i32",
+            None,
+        );
+
+        let baseline = ApiManifest::new("demo", Some("1.0.0".to_string()))
+            .with_library(LibraryApi::new(vec![base_item]));
+        let active = ApiManifest::new("demo", Some("1.0.0".to_string()))
+            .with_library(LibraryApi::new(vec![active_item]));
+
+        let report = active.diff(&baseline);
+        expect_that!(report.is_clean(), is_false());
+        expect_that!(report.has_breaking_changes(), is_true());
+        expect_that!(report.modifications.len(), eq(1));
+
+        let mod_item = report.modifications.first().ok_or("mod missing")?;
+        expect_that!(mod_item.is_breaking, is_true());
+        expect_that!(mod_item.name, eq("compute"));
 
         Ok(())
     }
