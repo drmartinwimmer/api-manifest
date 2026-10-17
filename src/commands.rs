@@ -1,7 +1,6 @@
 use crate::diagnostics::{DiagnosticReport, OutputFormat};
-use crate::diff::diff_manifests;
-use crate::extractors::extract_crate_api;
-use crate::manifest::{ManifestError, ManifestFormat, format_markdown, read_from_file};
+use crate::manifest::{ManifestError, ManifestFormat};
+use crate::model::ApiManifest;
 use clap::{Args, Subcommand, ValueEnum};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,7 +10,7 @@ use std::path::{Path, PathBuf};
     Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, serde::Serialize, serde::Deserialize,
 )]
 #[serde(rename_all = "lowercase")]
-pub enum ApiFailOn {
+pub(crate) enum ApiFailOn {
     /// Fail if any drift (additions, removals, or modifications) is detected.
     #[default]
     Any,
@@ -52,7 +51,7 @@ pub enum ApiManifestError {
 
 /// Arguments for `api-manifest dump`.
 #[derive(Args, Debug, Clone, Default, PartialEq, Eq)]
-pub struct ApiDumpArgs {
+pub(crate) struct ApiDumpArgs {
     /// Path to target crate or workspace directory
     #[arg(long)]
     path: Option<PathBuf>,
@@ -72,7 +71,8 @@ pub struct ApiDumpArgs {
 
 impl ApiDumpArgs {
     /// Creates a new `ApiDumpArgs` instance.
-    pub fn new(output: PathBuf, format: Option<OutputFormat>, quiet: bool) -> Self {
+    #[cfg(test)]
+    pub(crate) fn new(output: PathBuf, format: Option<OutputFormat>, quiet: bool) -> Self {
         Self {
             path: None,
             output,
@@ -82,25 +82,19 @@ impl ApiDumpArgs {
     }
 
     /// Sets the target directory path.
-    pub fn with_path(mut self, path: Option<PathBuf>) -> Self {
+    pub(crate) fn with_path(mut self, path: Option<PathBuf>) -> Self {
         self.path = path;
         self
     }
 
-    /// Sets the manifest output format.
-    pub fn with_format(mut self, format: Option<OutputFormat>) -> Self {
-        self.format = format;
-        self
-    }
-
     /// Sets quiet logging flag.
-    pub fn with_quiet(mut self, quiet: bool) -> Self {
+    pub(crate) fn with_quiet(mut self, quiet: bool) -> Self {
         self.quiet = quiet;
         self
     }
 
     /// Executes the API manifest dump command.
-    pub fn run(self) -> Result<(), ApiManifestError> {
+    pub(crate) fn run(self) -> Result<(), ApiManifestError> {
         let target_dir = self.path.unwrap_or_else(|| PathBuf::from("."));
         if !target_dir.exists() {
             return Err(ApiManifestError::PathNotFound(target_dir));
@@ -113,9 +107,9 @@ impl ApiDumpArgs {
             }
         };
 
-        let manifest = extract_crate_api(&target_dir)?;
+        let manifest = ApiManifest::extract_from_crate(&target_dir)?;
         let content = match manifest_format {
-            ManifestFormat::Markdown => format_markdown(&manifest),
+            ManifestFormat::Markdown => manifest.format_markdown(),
             ManifestFormat::Json => serde_json::to_string_pretty(&manifest)?,
         };
 
@@ -136,7 +130,7 @@ impl ApiDumpArgs {
 
 /// Arguments for `api-manifest check`.
 #[derive(Args, Debug, Clone, Default, PartialEq, Eq)]
-pub struct ApiCheckArgs {
+pub(crate) struct ApiCheckArgs {
     /// Path to target crate or workspace directory
     #[arg(long)]
     path: Option<PathBuf>,
@@ -160,7 +154,7 @@ pub struct ApiCheckArgs {
 
 impl ApiCheckArgs {
     /// Creates a new `ApiCheckArgs` instance.
-    pub fn new(manifest: PathBuf, fail_on: ApiFailOn, quiet: bool) -> Self {
+    pub(crate) fn new(manifest: PathBuf, fail_on: ApiFailOn, quiet: bool) -> Self {
         Self {
             path: None,
             manifest,
@@ -171,25 +165,19 @@ impl ApiCheckArgs {
     }
 
     /// Sets the target directory path.
-    pub fn with_path(mut self, path: Option<PathBuf>) -> Self {
+    pub(crate) fn with_path(mut self, path: Option<PathBuf>) -> Self {
         self.path = path;
         self
     }
 
-    /// Sets the output format for diagnostics.
-    pub fn with_format(mut self, format: Option<OutputFormat>) -> Self {
-        self.format = format;
-        self
-    }
-
     /// Sets quiet logging flag.
-    pub fn with_quiet(mut self, quiet: bool) -> Self {
+    pub(crate) fn with_quiet(mut self, quiet: bool) -> Self {
         self.quiet = quiet;
         self
     }
 
     /// Executes the API manifest drift check command.
-    pub fn run(self) -> Result<(), ApiManifestError> {
+    pub(crate) fn run(self) -> Result<(), ApiManifestError> {
         let target_dir = self.path.unwrap_or_else(|| PathBuf::from("."));
         if !target_dir.exists() {
             return Err(ApiManifestError::PathNotFound(target_dir));
@@ -204,7 +192,7 @@ impl ApiCheckArgs {
         let manifests_to_check = if target_manifest.exists() {
             vec![(target_dir.clone(), target_manifest)]
         } else if self.manifest == Path::new("API.md") {
-            let found = find_api_manifests(&target_dir);
+            let found = Self::find_api_manifests(&target_dir);
             if found.is_empty() {
                 return Ok(());
             }
@@ -225,9 +213,9 @@ impl ApiCheckArgs {
         let mut any_breaking = false;
 
         for (crate_dir, manifest_path) in manifests_to_check {
-            let baseline = read_from_file(&manifest_path)?;
-            let active = extract_crate_api(&crate_dir)?;
-            let report = diff_manifests(&active, &baseline);
+            let baseline = ApiManifest::read_from_file(&manifest_path)?;
+            let active = ApiManifest::extract_from_crate(&crate_dir)?;
+            let report = active.diff(&baseline);
 
             if !self.quiet && !report.is_clean() {
                 let output_format = self.format.unwrap_or(OutputFormat::Console);
@@ -260,47 +248,47 @@ impl ApiCheckArgs {
 
         Ok(())
     }
-}
 
-fn find_api_manifests(root: &Path) -> Vec<PathBuf> {
-    if root.is_file() {
-        if root.file_name().and_then(|s| s.to_str()) == Some("API.md") {
-            return vec![root.to_path_buf()];
+    fn find_api_manifests(root: &Path) -> Vec<PathBuf> {
+        if root.is_file() {
+            if root.file_name().and_then(|s| s.to_str()) == Some("API.md") {
+                return vec![root.to_path_buf()];
+            }
+            return Vec::new();
         }
-        return Vec::new();
+
+        let mut manifests = Vec::new();
+        Self::crawl_api_manifests(root, &mut manifests);
+        manifests.sort();
+        manifests
     }
 
-    let mut manifests = Vec::new();
-    crawl_api_manifests(root, &mut manifests);
-    manifests.sort();
-    manifests
-}
-
-fn crawl_api_manifests(dir: &Path, manifests: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
-            continue;
+    fn crawl_api_manifests(dir: &Path, manifests: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
         };
 
-        if path.is_dir() {
-            if name.starts_with('.') || name == "target" || name == "node_modules" {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
                 continue;
+            };
+
+            if path.is_dir() {
+                if name.starts_with('.') || name == "target" || name == "node_modules" {
+                    continue;
+                }
+                Self::crawl_api_manifests(&path, manifests);
+            } else if path.is_file() && name == "API.md" {
+                manifests.push(path);
             }
-            crawl_api_manifests(&path, manifests);
-        } else if path.is_file() && name == "API.md" {
-            manifests.push(path);
         }
     }
 }
 
 /// Subcommands for the API manifest and drift inspection tool.
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
-pub enum ApiSubcommand {
+pub(crate) enum ApiSubcommand {
     /// Inspect codebase and generate or update the API manifest (API.md)
     Dump(ApiDumpArgs),
 
@@ -318,10 +306,6 @@ pub struct ApiManifestCommand {
     #[arg(long, global = true)]
     path: Option<PathBuf>,
 
-    /// Path to Cargo.toml or workspace root (backwards compatibility)
-    #[arg(long)]
-    manifest_path: Option<PathBuf>,
-
     /// Silence non-essential logging output
     #[arg(short, long, global = true)]
     quiet: bool,
@@ -329,30 +313,25 @@ pub struct ApiManifestCommand {
 
 impl ApiManifestCommand {
     /// Creates a new `ApiManifestCommand`.
-    pub fn new(manifest_path: Option<PathBuf>, quiet: bool) -> Self {
+    #[cfg(test)]
+    pub(crate) fn new(path: Option<PathBuf>, quiet: bool) -> Self {
         Self {
             command: None,
-            path: None,
-            manifest_path,
+            path,
             quiet,
         }
     }
 
     /// Sets the subcommand.
-    pub fn with_subcommand(mut self, subcommand: ApiSubcommand) -> Self {
+    #[cfg(test)]
+    pub(crate) fn with_subcommand(mut self, subcommand: ApiSubcommand) -> Self {
         self.command = Some(subcommand);
-        self
-    }
-
-    /// Sets the target directory path.
-    pub fn with_path(mut self, path: Option<PathBuf>) -> Self {
-        self.path = path;
         self
     }
 
     /// Runs the API command (defaults to check if no subcommand is given).
     pub fn run(self) -> Result<(), ApiManifestError> {
-        let global_path = self.path.or(self.manifest_path);
+        let global_path = self.path;
         let global_quiet = self.quiet;
 
         match self.command {

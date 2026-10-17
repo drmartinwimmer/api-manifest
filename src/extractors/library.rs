@@ -21,7 +21,10 @@ impl LibraryExtractor {
     }
 
     /// Extracts the public API from a Rust library crate given its root directory.
-    pub fn extract_from_crate(&self, crate_root: &Path) -> std::io::Result<Option<LibraryApi>> {
+    pub(crate) fn extract_from_crate(
+        &self,
+        crate_root: &Path,
+    ) -> std::io::Result<Option<LibraryApi>> {
         let lib_path = crate_root.join("src").join("lib.rs");
         if !lib_path.exists() {
             return Ok(None);
