@@ -4,6 +4,10 @@
     ".": {
       "release-type": "rust",
       "package-name": "api-manifest"
+    },
+    "crates/api-manifest-derive": {
+      "release-type": "rust",
+      "package-name": "api-manifest-derive"
     }
   }
 }

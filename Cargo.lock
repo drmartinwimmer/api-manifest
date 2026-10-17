@@ -65,9 +65,19 @@ dependencies = [
 name = "api-manifest"
 version = "0.1.0"
 dependencies = [
+ "api-manifest-derive",
  "clap",
  "googletest",
  "thiserror",
+]
+
+[[package]]
+name = "api-manifest-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]

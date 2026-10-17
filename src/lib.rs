@@ -1,6 +1,10 @@
+extern crate self as api_manifest;
+
 mod commands;
+mod config_file;
 
 pub use commands::{ApiManifestCommand, ApiManifestError};
+pub use config_file::ConfigFile;
 
 #[cfg(test)]
 mod tests {
