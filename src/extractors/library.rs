@@ -1,7 +1,9 @@
+use crate::extractors::CargoPackageMetadata;
 use crate::extractors::library_format::{
     collect_use_tree, extract_doc_comment, format_const, format_enum, format_fn_sig, format_static,
     format_struct, format_trait, format_type_alias, is_public, normalize_tokens,
 };
+use crate::manifest::ManifestError;
 use crate::model::{ItemKind, LibraryApi, LibraryItem};
 use std::fs;
 use std::path::Path;
@@ -24,18 +26,18 @@ impl LibraryExtractor {
     pub(crate) fn extract_from_crate(
         &self,
         crate_root: &Path,
-    ) -> std::io::Result<Option<LibraryApi>> {
+    ) -> Result<Option<LibraryApi>, ManifestError> {
         let lib_path = crate_root.join("src").join("lib.rs");
         if !lib_path.exists() {
             return Ok(None);
         }
 
         let content = fs::read_to_string(&lib_path)?;
-        let file = syn::parse_file(&content)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        let file = syn::parse_file(&content)?;
 
-        let crate_name =
-            Self::extract_crate_name(crate_root).unwrap_or_else(|| "crate".to_string());
+        let crate_name = CargoPackageMetadata::from_crate_root(crate_root)?
+            .name
+            .replace('-', "_");
         let mut items = Vec::new();
 
         self.extract_file(&file, &crate_name, Some(crate_root), &mut items);
@@ -373,7 +375,7 @@ impl LibraryExtractor {
         file: &File,
         module_path: &str,
         items: &mut Vec<LibraryItem>,
-    ) -> std::io::Result<()> {
+    ) -> Result<(), ManifestError> {
         let src_dir = crate_root.join("src");
         for item in &file.items {
             if let Item::Mod(item_mod) = item
@@ -394,28 +396,13 @@ impl LibraryExtractor {
 
                 if let Some(path) = target_path {
                     let content = fs::read_to_string(&path)?;
-                    if let Ok(sub_file) = syn::parse_file(&content) {
-                        let nested_path = format!("{module_path}::{mod_name}");
-                        self.extract_file(&sub_file, &nested_path, Some(crate_root), items);
-                    }
+                    let sub_file = syn::parse_file(&content)?;
+                    let nested_path = format!("{module_path}::{mod_name}");
+                    self.extract_file(&sub_file, &nested_path, Some(crate_root), items);
                 }
             }
         }
         Ok(())
-    }
-
-    fn extract_crate_name(crate_root: &Path) -> Option<String> {
-        let cargo_toml = crate_root.join("Cargo.toml");
-        if let Ok(content) = fs::read_to_string(cargo_toml) {
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if let Some(rest) = trimmed.strip_prefix("name =") {
-                    let name = rest.trim().trim_matches('"').trim_matches('\'');
-                    return Some(name.replace('-', "_"));
-                }
-            }
-        }
-        None
     }
 }
 

@@ -13,7 +13,7 @@
 ### Enums
 
 - `pub enum ApiManifestError { PathNotFound(PathBuf), ManifestNotFound(PathBuf), Io(std :: io :: Error), Manifest(ManifestError), Json(serde_json :: Error), DriftDetected { drift_count: usize, breaking_count: usize } }` — _Error type for API manifest inspection execution._
-- `pub enum ManifestError { Json(serde_json :: Error), Io { path: std :: path :: PathBuf, source: std :: io :: Error }, ParseMarkdown(String) }` — _Manifest formatting and parsing errors._
+- `pub enum ManifestError { Json(serde_json :: Error), Toml(de :: Error), Syn(syn :: Error), Io(std :: io :: Error), MissingPackageSection }` — _Manifest formatting, parsing, and extraction errors._
 
 ### Methods
 
@@ -22,7 +22,7 @@
 - `pub fn ApiDriftReport::is_clean(& self) -> bool` — _Returns true if there is no drift detected._
 - `pub fn ApiDriftReport::total_drift_count(& self) -> usize` — _Returns the total number of drifted items._
 - `pub fn ApiManifest::diff(& self, baseline: & Self) -> ApiDriftReport` — _Diffs this active `ApiManifest` against a checked-in baseline manifest._
-- `pub fn ApiManifest::extract_from_crate(crate_root: & Path) -> std :: io :: Result < Self >` — _Auto-detects targets and extracts the public API manifest from a crate root._
+- `pub fn ApiManifest::extract_from_crate(crate_root: & Path) -> Result < Self , ManifestError >` — _Auto-detects targets and extracts the public API manifest from a crate root._
 - `pub fn ApiManifest::format_markdown(& self) -> String` — _Formats this `ApiManifest` as GitHub Flavored Markdown (`API.md`)._
 - `pub fn ApiManifest::read_from_file(path: & Path) -> Result < Self , ManifestError >` — _Reads and parses an `ApiManifest` from disk (supports Markdown or JSON)._
 - `pub fn ApiManifestCommand::run(self) -> Result < () , ApiManifestError >` — _Runs the API command (defaults to check if no subcommand is given)._

@@ -3,6 +3,7 @@ use crate::model::{
 };
 use std::fs;
 use std::path::Path;
+use toml::de;
 
 /// Manifest output format.
 #[derive(
@@ -25,21 +26,23 @@ pub(crate) enum ManifestFormat {
     Json,
 }
 
-/// Manifest formatting and parsing errors.
+/// Manifest formatting, parsing, and extraction errors.
 #[derive(Debug, thiserror::Error)]
 pub enum ManifestError {
     #[error("Failed to parse JSON manifest: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("Failed to read manifest file '{path}': {source}")]
-    Io {
-        path: std::path::PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
+    #[error("Failed to parse Cargo.toml manifest: {0}")]
+    Toml(#[from] de::Error),
 
-    #[error("Failed to parse Markdown manifest: {0}")]
-    ParseMarkdown(String),
+    #[error("Failed to parse Rust source syntax: {0}")]
+    Syn(#[from] syn::Error),
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Missing [package] section in Cargo.toml")]
+    MissingPackageSection,
 }
 
 impl ApiManifest {
@@ -93,10 +96,7 @@ impl ApiManifest {
     }
 
     pub(crate) fn read_from_file_inner(path: &Path) -> Result<Self, ManifestError> {
-        let content = fs::read_to_string(path).map_err(|err| ManifestError::Io {
-            path: path.to_path_buf(),
-            source: err,
-        })?;
+        let content = fs::read_to_string(path)?;
         Self::parse_str(&content)
     }
 }
