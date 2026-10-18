@@ -13,7 +13,7 @@ mod schema_api;
 
 pub use commands::{ApiManifestCommand, ApiManifestError};
 pub use config_file::ConfigFile;
-pub use diff_report::ApiDriftReport;
+pub use diagnostics::{Diagnostic, DiagnosticReport, ReportSummary, Severity, Span};
 pub use manifest::{ApiManifest, ManifestError};
 
 #[cfg(test)]

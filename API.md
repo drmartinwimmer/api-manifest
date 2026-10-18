@@ -6,25 +6,24 @@
 
 ### Structs
 
-- `pub struct ApiDriftReport { /* no public fields */ }` — _Aggregated report of API drift between active code and manifest._
 - `pub struct ApiManifest { /* no public fields */ }` — _Comprehensive public API manifest representing library, CLI, HTTP, and config surfaces._
 - `pub struct ApiManifestCommand { /* no public fields */ }` — _Command-line arguments for `api-manifest`._
+- `pub struct Diagnostic { pub rule: String, pub severity: Severity, pub message: String, pub span: Option < Span >, pub suggested_fix: Option < String > }` — _A structured diagnostic finding._
+- `pub struct DiagnosticReport { pub diagnostics: Vec < Diagnostic >, pub summary: ReportSummary }` — _Aggregated report of diagnostics._
+- `pub struct ReportSummary { pub total_errors: usize, pub total_warnings: usize, pub total_info: usize, pub total_hints: usize }` — _Summary counts for a diagnostic report._
+- `pub struct Span { pub file: PathBuf, pub start_line: usize, pub start_col: usize, pub end_line: usize, pub end_col: usize }` — _Source code location span._
 
 ### Enums
 
 - `pub enum ApiManifestError { PathNotFound(PathBuf), ManifestNotFound(PathBuf), Io(std :: io :: Error), Manifest(ManifestError), Json(serde_json :: Error), DriftDetected { drift_count: usize, breaking_count: usize } }` — _Error type for API manifest inspection execution._
 - `pub enum ManifestError { Json(serde_json :: Error), Toml(de :: Error), Syn(syn :: Error), Io(std :: io :: Error), MissingPackageSection }` — _Manifest formatting, parsing, and extraction errors._
+- `pub enum Severity { Hint, Info, Warning, Error }` — _Severity level for a diagnostic finding._
 
 ### Methods
 
-- `pub fn ApiDriftReport::breaking_count(& self) -> usize` — _Returns the number of breaking changes._
-- `pub fn ApiDriftReport::has_breaking_changes(& self) -> bool` — _Returns true if any breaking changes were detected._
-- `pub fn ApiDriftReport::is_clean(& self) -> bool` — _Returns true if there is no drift detected._
-- `pub fn ApiDriftReport::total_drift_count(& self) -> usize` — _Returns the total number of drifted items._
-- `pub fn ApiManifest::diff(& self, baseline: & Self) -> ApiDriftReport` — _Diffs this active `ApiManifest` against a checked-in baseline manifest._
+- `pub fn ApiManifest::check_path(path: & Path) -> Result < DiagnosticReport , ApiManifestError >` — _Discovers API manifests under `path`, diffs each against its crate, and returns a [`DiagnosticReport`]._
 - `pub fn ApiManifest::extract_from_crate(crate_root: & Path) -> Result < Self , ManifestError >` — _Auto-detects targets and extracts the public API manifest from a crate root._
 - `pub fn ApiManifest::format_markdown(& self) -> String` — _Formats this `ApiManifest` as GitHub Flavored Markdown (`API.md`)._
-- `pub fn ApiManifest::read_from_file(path: & Path) -> Result < Self , ManifestError >` — _Reads and parses a JSON `ApiManifest` from disk._
 - `pub fn ApiManifestCommand::run(self) -> Result < () , ApiManifestError >` — _Runs the API command (defaults to check if no subcommand is given)._
 
 ### Traits
@@ -76,8 +75,17 @@ Inspect codebase and generate or update the API manifest (API.md)
 
 Package metadata extracted from `Cargo.toml`.
 
+| Key            | Value Type       | Default   | Description                    |
+| -------------- | ---------------- | --------- | ------------------------------ |
+| `name`         | `String`         | `-`       | Package name                   |
+| `rust-version` | `Option<String>` | `default` | Minimum supported Rust version |
+| `version`      | `Option<String>` | `default` | Package version                |
+
+### `[workspace.package]` (_Cargo.toml_)
+
+Shared workspace package metadata
+
 | Key            | Value Type       | Default | Description                    |
 | -------------- | ---------------- | ------- | ------------------------------ |
-| `name`         | `String`         | `-`     | Package name                   |
 | `rust-version` | `Option<String>` | `-`     | Minimum supported Rust version |
 | `version`      | `Option<String>` | `-`     | Package version                |

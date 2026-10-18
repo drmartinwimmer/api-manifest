@@ -1,4 +1,6 @@
 use crate::cli_api::CliApi;
+use crate::commands::{ApiCheckArgs, ApiFailOn, ApiManifestError};
+use crate::diagnostics::DiagnosticReport;
 use crate::diff_report::{ApiDriftReport, DriftItem, DriftSurface};
 use crate::extractors::{
     CargoPackageConfig, CliExtractor, ConfigExtractor, HttpExtractor, LibraryExtractor,
@@ -8,8 +10,7 @@ use crate::library_api::LibraryApi;
 use crate::schema_api::ConfigApi;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use toml::de;
 
 /// Manifest output format.
@@ -106,6 +107,13 @@ impl ApiManifest {
         self
     }
 
+    /// Discovers API manifests under `path`, diffs each against its crate, and returns a [`DiagnosticReport`].
+    pub fn check_path(path: &Path) -> Result<DiagnosticReport, ApiManifestError> {
+        ApiCheckArgs::new(PathBuf::from("API.md"), ApiFailOn::Any, true)
+            .with_path(Some(path.to_path_buf()))
+            .check()
+    }
+
     /// Auto-detects targets and extracts the public API manifest from a crate root.
     pub fn extract_from_crate(crate_root: &Path) -> Result<Self, ManifestError> {
         let metadata = CargoPackageConfig::from_crate_root(crate_root)?;
@@ -132,12 +140,6 @@ impl ApiManifest {
         }
 
         Ok(manifest)
-    }
-
-    /// Reads and parses a JSON `ApiManifest` from disk.
-    pub fn read_from_file(path: &Path) -> Result<Self, ManifestError> {
-        let content = fs::read_to_string(path)?;
-        Self::parse_str(&content)
     }
 
     pub(crate) fn parse_str(content: &str) -> Result<Self, ManifestError> {
@@ -227,7 +229,7 @@ impl ApiManifest {
     }
 
     /// Diffs this active `ApiManifest` against a checked-in baseline manifest.
-    pub fn diff(&self, baseline: &Self) -> ApiDriftReport {
+    pub(crate) fn diff(&self, baseline: &Self) -> ApiDriftReport {
         let mut report = ApiDriftReport::default();
 
         let empty_lib = LibraryApi::default();
