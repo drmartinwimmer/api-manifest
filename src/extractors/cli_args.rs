@@ -293,3 +293,9 @@ pub(crate) fn is_subcommand_field(attrs: &[Attribute]) -> bool {
     }
     false
 }
+
+pub(crate) fn is_cfg_test(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        attr.path().is_ident("cfg") && attr.meta.to_token_stream().to_string().contains("test")
+    })
+}

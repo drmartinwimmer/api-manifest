@@ -18,13 +18,13 @@ pub(crate) use library::LibraryExtractor;
 
 #[derive(Debug, Default, Deserialize, ConfigFile)]
 #[config_file("Cargo.toml")]
-struct CargoManifest {
-    package: Option<CargoPackageMetadata>,
+struct CargoManifestConfig {
+    package: Option<CargoPackageConfig>,
 }
 
 /// Package metadata extracted from `Cargo.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub(crate) struct CargoPackageMetadata {
+pub(crate) struct CargoPackageConfig {
     /// Package name
     pub(crate) name: String,
     /// Package version
@@ -34,12 +34,12 @@ pub(crate) struct CargoPackageMetadata {
     pub(crate) rust_version: Option<String>,
 }
 
-impl CargoPackageMetadata {
+impl CargoPackageConfig {
     /// Extracts `[package]` metadata from `Cargo.toml` in `crate_root`.
     pub(crate) fn from_crate_root(crate_root: &Path) -> Result<Self, ManifestError> {
-        let cargo_toml = crate_root.join(CargoManifest::config_file_path());
+        let cargo_toml = crate_root.join(CargoManifestConfig::config_file_path());
         let content = fs::read_to_string(cargo_toml)?;
-        let manifest: CargoManifest = toml::from_str(&content)?;
+        let manifest: CargoManifestConfig = toml::from_str(&content)?;
         manifest.package.ok_or(ManifestError::MissingPackageSection)
     }
 }
