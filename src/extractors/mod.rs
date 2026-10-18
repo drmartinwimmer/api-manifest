@@ -1,5 +1,4 @@
 use crate::manifest::ManifestError;
-use crate::model::ApiManifest;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -33,24 +32,10 @@ impl CargoPackageMetadata {
     }
 }
 
-impl ApiManifest {
-    /// High-level helper that auto-detects targets and extracts the public API manifest from a crate root.
-    pub(crate) fn extract_from_crate_inner(crate_root: &Path) -> Result<Self, ManifestError> {
-        let metadata = CargoPackageMetadata::from_crate_root(crate_root)?;
-        let mut manifest = Self::new(metadata.name, metadata.version);
-
-        let lib_extractor = LibraryExtractor::new();
-        if let Some(lib_api) = lib_extractor.extract_from_crate(crate_root)? {
-            manifest = manifest.with_library(lib_api);
-        }
-
-        Ok(manifest)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::ApiManifest;
     use googletest::prelude::*;
     use std::path::PathBuf;
 

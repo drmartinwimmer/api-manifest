@@ -1,20 +1,21 @@
 extern crate self as api_manifest;
 
+mod cli_api;
 mod commands;
 mod config_file;
 mod diagnostics;
-mod diff;
 mod diff_report;
 mod extractors;
+mod http_api;
+mod library_api;
 mod manifest;
-mod manifest_parse;
-mod model;
+mod markdown_parser;
+mod schema_api;
 
 pub use commands::{ApiManifestCommand, ApiManifestError};
 pub use config_file::ConfigFile;
 pub use diff_report::ApiDriftReport;
-pub use manifest::ManifestError;
-pub use model::ApiManifest;
+pub use manifest::{ApiManifest, ManifestError};
 
 #[cfg(test)]
 mod tests {

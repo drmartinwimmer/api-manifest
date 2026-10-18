@@ -3,8 +3,8 @@ use crate::extractors::library_format::{
     collect_use_tree, extract_doc_comment, format_const, format_enum, format_fn_sig, format_static,
     format_struct, format_trait, format_type_alias, is_public, normalize_tokens,
 };
+use crate::library_api::{ItemKind, LibraryApi, LibraryItem};
 use crate::manifest::ManifestError;
-use crate::model::{ItemKind, LibraryApi, LibraryItem};
 use std::fs;
 use std::path::Path;
 use syn::{
