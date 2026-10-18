@@ -182,6 +182,38 @@ impl ApiCheckArgs {
         self
     }
 
+    /// Executes the API manifest drift check and returns the aggregated [`DiagnosticReport`].
+    pub(crate) fn check(self) -> Result<DiagnosticReport, ApiManifestError> {
+        let target_dir = self.path.as_deref().unwrap_or_else(|| Path::new("."));
+        if !target_dir.exists() {
+            return Err(ApiManifestError::PathNotFound(target_dir.to_path_buf()));
+        }
+
+        let targets = self.resolve_manifest_targets(target_dir)?;
+        let mut diagnostics = Vec::new();
+
+        for target in targets {
+            let active = ApiManifest::extract_from_crate(&target.crate_dir)?;
+            let content = fs::read_to_string(&target.manifest_path)?;
+            let is_json = target.manifest_path.extension().and_then(|s| s.to_str()) == Some("json")
+                || content.trim_start().starts_with('{');
+
+            let report = if is_json {
+                let baseline = ApiManifest::parse_str(&content)?;
+                active.diff(&baseline)
+            } else {
+                active.diff_markdown(&content)
+            };
+
+            if !report.is_clean() {
+                diagnostics
+                    .extend(report.to_diagnostics(&target.manifest_path.display().to_string()));
+            }
+        }
+
+        Ok(DiagnosticReport::new(diagnostics))
+    }
+
     /// Executes the API manifest drift check command.
     pub(crate) fn run(self) -> Result<(), ApiManifestError> {
         let target_dir = self.path.as_deref().unwrap_or_else(|| Path::new("."));
@@ -657,10 +689,29 @@ mod tests {
         expect_that!(md_content, contains_substring("`<WORKSPACE-NAME>`"));
 
         let check_args = ApiCheckArgs::new(PathBuf::from("API.md"), ApiFailOn::Any, true)
-            .with_path(Some(temp_dir));
+            .with_path(Some(temp_dir.clone()));
         let check_cmd =
             ApiManifestCommand::new(None, true).with_subcommand(ApiSubcommand::Check(check_args));
         assert_that!(check_cmd.run(), ok(anything()));
+
+        let clean_report = ApiManifest::check_path(&temp_dir)?;
+        expect_that!(clean_report.summary.total_errors, eq(0));
+        expect_that!(clean_report.diagnostics, is_empty());
+
+        fs::write(
+            src_dir.join("lib.rs"),
+            format!("{lib_rs}\npub fn newly_added() {{}}\n"),
+        )?;
+
+        let drift_report = ApiManifest::check_path(&temp_dir)?;
+        expect_that!(drift_report.summary.total_warnings, eq(1));
+        expect_that!(drift_report.diagnostics.len(), eq(1));
+        let diag = drift_report
+            .diagnostics
+            .first()
+            .ok_or("diagnostic missing")?;
+        expect_that!(diag.rule, eq("api::drift::addition"));
+        expect_that!(diag.message, contains_substring("newly_added"));
 
         Ok(())
     }

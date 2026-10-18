@@ -58,7 +58,7 @@ impl DriftItem {
 
 /// Aggregated report of API drift between active code and manifest.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ApiDriftReport {
+pub(crate) struct ApiDriftReport {
     pub(crate) additions: Vec<DriftItem>,
     pub(crate) removals: Vec<DriftItem>,
     pub(crate) modifications: Vec<DriftItem>,
@@ -95,25 +95,25 @@ impl ApiDriftReport {
     }
 
     /// Returns true if there is no drift detected.
-    pub fn is_clean(&self) -> bool {
+    pub(crate) fn is_clean(&self) -> bool {
         self.additions.is_empty() && self.removals.is_empty() && self.modifications.is_empty()
     }
 
     /// Returns true if any breaking changes were detected.
-    pub fn has_breaking_changes(&self) -> bool {
+    pub(crate) fn has_breaking_changes(&self) -> bool {
         self.removals.iter().any(|i| i.is_breaking)
             || self.modifications.iter().any(|i| i.is_breaking)
     }
 
     /// Returns the number of breaking changes.
-    pub fn breaking_count(&self) -> usize {
+    pub(crate) fn breaking_count(&self) -> usize {
         let rem_breaking = self.removals.iter().filter(|i| i.is_breaking).count();
         let mod_breaking = self.modifications.iter().filter(|i| i.is_breaking).count();
         rem_breaking + mod_breaking
     }
 
     /// Returns the total number of drifted items.
-    pub fn total_drift_count(&self) -> usize {
+    pub(crate) fn total_drift_count(&self) -> usize {
         self.additions.len() + self.removals.len() + self.modifications.len()
     }
 

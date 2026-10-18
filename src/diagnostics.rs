@@ -19,7 +19,7 @@ pub(crate) enum OutputFormat {
 /// Severity level for a diagnostic finding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Severity {
+pub enum Severity {
     Hint,
     Info,
     Warning,
@@ -39,12 +39,12 @@ impl std::fmt::Display for Severity {
 
 /// Source code location span.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub(crate) struct Span {
-    pub(crate) file: PathBuf,
-    pub(crate) start_line: usize,
-    pub(crate) start_col: usize,
-    pub(crate) end_line: usize,
-    pub(crate) end_col: usize,
+pub struct Span {
+    pub file: PathBuf,
+    pub start_line: usize,
+    pub start_col: usize,
+    pub end_line: usize,
+    pub end_col: usize,
 }
 
 impl Span {
@@ -68,14 +68,14 @@ impl Span {
 
 /// A structured diagnostic finding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct Diagnostic {
-    pub(crate) rule: String,
-    pub(crate) severity: Severity,
-    pub(crate) message: String,
+pub struct Diagnostic {
+    pub rule: String,
+    pub severity: Severity,
+    pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) span: Option<Span>,
+    pub span: Option<Span>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) suggested_fix: Option<String>,
+    pub suggested_fix: Option<String>,
 }
 
 impl Diagnostic {
@@ -109,18 +109,18 @@ impl Diagnostic {
 
 /// Summary counts for a diagnostic report.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub(crate) struct ReportSummary {
-    pub(crate) total_errors: usize,
-    pub(crate) total_warnings: usize,
-    pub(crate) total_info: usize,
-    pub(crate) total_hints: usize,
+pub struct ReportSummary {
+    pub total_errors: usize,
+    pub total_warnings: usize,
+    pub total_info: usize,
+    pub total_hints: usize,
 }
 
 /// Aggregated report of diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub(crate) struct DiagnosticReport {
-    pub(crate) diagnostics: Vec<Diagnostic>,
-    pub(crate) summary: ReportSummary,
+pub struct DiagnosticReport {
+    pub diagnostics: Vec<Diagnostic>,
+    pub summary: ReportSummary,
 }
 
 impl DiagnosticReport {
