@@ -1,7 +1,7 @@
 use crate::cli_api::CliApi;
 use crate::diff_report::ApiDriftReport;
 use crate::extractors::{
-    CargoPackageMetadata, CliExtractor, ConfigExtractor, HttpExtractor, LibraryExtractor,
+    CargoPackageConfig, CliExtractor, ConfigExtractor, HttpExtractor, LibraryExtractor,
 };
 use crate::http_api::HttpApi;
 use crate::library_api::LibraryApi;
@@ -108,7 +108,7 @@ impl ApiManifest {
 
     /// Auto-detects targets and extracts the public API manifest from a crate root.
     pub fn extract_from_crate(crate_root: &Path) -> Result<Self, ManifestError> {
-        let metadata = CargoPackageMetadata::from_crate_root(crate_root)?;
+        let metadata = CargoPackageConfig::from_crate_root(crate_root)?;
         let mut manifest = Self::new(metadata.name, metadata.version);
 
         let lib_extractor = LibraryExtractor::new();

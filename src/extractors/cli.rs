@@ -1,15 +1,15 @@
 use crate::cli_api::{CliApi, CliArgItem, CliCommandItem};
-use crate::extractors::CargoPackageMetadata;
+use crate::extractors::CargoPackageConfig;
 use crate::extractors::cli_args::{
     CommandMetadata, ParsedArgAttributes, extract_doc_comment, extract_type_ident,
-    has_derive_attribute, is_flatten_field, is_subcommand_field, to_kebab_case,
+    has_derive_attribute, is_cfg_test, is_flatten_field, is_subcommand_field, to_kebab_case,
 };
 use crate::manifest::ManifestError;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use syn::visit::{self, Visit};
-use syn::{Fields, File, Item, ItemEnum, ItemStruct, Variant};
+use syn::{Field, Fields, ItemEnum, ItemMod, ItemStruct, Variant};
 
 /// Extractor for CLI subcommands, flags, and arguments.
 #[derive(Debug, Default)]
@@ -100,7 +100,7 @@ impl CliExtractor {
         }
 
         let ctx = CrateContext { local, workspace };
-        let default_name = CargoPackageMetadata::from_crate_root(crate_root)?.name;
+        let default_name = CargoPackageConfig::from_crate_root(crate_root)?.name;
         let api = self.extract_with_context(&ctx, &default_name);
 
         if api.commands.is_empty() {
@@ -112,9 +112,9 @@ impl CliExtractor {
 
     /// Statically extracts CLI commands from a parsed `syn::File`.
     #[cfg(test)]
-    pub(crate) fn extract_from_file(&self, file: &File, default_name: &str) -> CliApi {
+    pub(crate) fn extract_from_file(&self, file: &syn::File, default_name: &str) -> CliApi {
         let mut local = AstRegistry::default();
-        local.index_file(file);
+        local.visit_file(file);
         let ctx = CrateContext {
             local,
             workspace: AstRegistry::default(),
@@ -194,26 +194,37 @@ impl AstRegistry {
                     && let Ok(content) = fs::read_to_string(&path)
                     && let Ok(file) = syn::parse_file(&content)
                 {
-                    self.index_file(&file);
+                    self.visit_file(&file);
                 }
             }
         }
     }
+}
 
-    fn index_file(&mut self, file: &File) {
-        for item in &file.items {
-            match item {
-                Item::Struct(item_struct) => {
-                    self.structs
-                        .insert(item_struct.ident.to_string(), item_struct.clone());
-                }
-                Item::Enum(item_enum) => {
-                    self.enums
-                        .insert(item_enum.ident.to_string(), item_enum.clone());
-                }
-                _ => {}
-            }
+impl<'ast> Visit<'ast> for AstRegistry {
+    fn visit_item_mod(&mut self, item_mod: &'ast ItemMod) {
+        if is_cfg_test(&item_mod.attrs) {
+            return;
         }
+        visit::visit_item_mod(self, item_mod);
+    }
+
+    fn visit_item_struct(&mut self, item_struct: &'ast ItemStruct) {
+        if is_cfg_test(&item_struct.attrs) {
+            return;
+        }
+        self.structs
+            .insert(item_struct.ident.to_string(), item_struct.clone());
+        visit::visit_item_struct(self, item_struct);
+    }
+
+    fn visit_item_enum(&mut self, item_enum: &'ast ItemEnum) {
+        if is_cfg_test(&item_enum.attrs) {
+            return;
+        }
+        self.enums
+            .insert(item_enum.ident.to_string(), item_enum.clone());
+        visit::visit_item_enum(self, item_enum);
     }
 }
 
@@ -276,28 +287,17 @@ impl CrateContext {
             format!("{prefix} {cmd_name}")
         };
 
-        let mut args = Vec::new();
-        let mut subcmd_names = Vec::new();
-        let mut pending_subcommands = Vec::new();
-        let mut visited_flattened = HashSet::new();
-
-        self.extract_struct_fields(
-            &struct_item.fields,
-            &mut args,
-            &mut subcmd_names,
-            &mut pending_subcommands,
-            &mut visited_flattened,
-            visited_enums,
-        );
+        let mut field_visitor = CliStructFieldVisitor::new(self, visited_enums);
+        field_visitor.extract_struct(struct_item);
 
         output.push(CliCommandItem::new(
             full_name.clone(),
             about,
-            args,
-            subcmd_names,
+            field_visitor.args,
+            field_visitor.subcmd_names,
         ));
 
-        for pending in pending_subcommands {
+        for pending in field_visitor.pending_subcommands {
             match pending.target {
                 SubcommandTarget::Struct(type_name) => {
                     if let Some(inner_struct) = self.find_struct(&type_name) {
@@ -322,16 +322,7 @@ impl CrateContext {
                         ));
                     }
                 }
-                SubcommandTarget::InlineFields(fields) => {
-                    let mut sub_args = Vec::new();
-                    for field in &fields {
-                        let f_name = field
-                            .ident
-                            .as_ref()
-                            .map(|i| i.to_string())
-                            .unwrap_or_default();
-                        sub_args.push(ParsedArgAttributes::extract_cli_arg(field, f_name));
-                    }
+                SubcommandTarget::InlineArgs(sub_args) => {
                     let sub_full_name = format!("{full_name} {}", pending.name);
                     output.push(CliCommandItem::new(
                         sub_full_name,
@@ -352,78 +343,93 @@ impl CrateContext {
             }
         }
     }
+}
 
-    fn extract_struct_fields(
-        &self,
-        fields: &Fields,
-        args: &mut Vec<CliArgItem>,
-        subcmd_names: &mut Vec<String>,
-        pending_subcommands: &mut Vec<PendingSubcommand>,
-        visited_flattened: &mut HashSet<String>,
-        visited_enums: &mut HashSet<String>,
-    ) {
-        let Fields::Named(named) = fields else {
-            return;
-        };
+struct CliStructFieldVisitor<'a> {
+    ctx: &'a CrateContext,
+    args: Vec<CliArgItem>,
+    subcmd_names: Vec<String>,
+    pending_subcommands: Vec<PendingSubcommand>,
+    visited_flattened: HashSet<String>,
+    visited_enums: &'a mut HashSet<String>,
+}
 
-        for field in &named.named {
-            let field_name = field
-                .ident
-                .as_ref()
-                .map(|i| i.to_string())
-                .unwrap_or_default();
-
-            if is_flatten_field(&field.attrs)
-                && let Some(inner_type) = extract_type_ident(&field.ty)
-                && visited_flattened.insert(inner_type.clone())
-                && let Some(inner_struct) = self.find_struct(&inner_type)
-            {
-                self.extract_struct_fields(
-                    &inner_struct.fields,
-                    args,
-                    subcmd_names,
-                    pending_subcommands,
-                    visited_flattened,
-                    visited_enums,
-                );
-            } else if is_subcommand_field(&field.attrs) {
-                self.extract_subcommand_variants(
-                    field,
-                    subcmd_names,
-                    pending_subcommands,
-                    visited_enums,
-                );
-            } else {
-                args.push(ParsedArgAttributes::extract_cli_arg(field, field_name));
-            }
+impl<'a> CliStructFieldVisitor<'a> {
+    fn new(ctx: &'a CrateContext, visited_enums: &'a mut HashSet<String>) -> Self {
+        Self {
+            ctx,
+            args: Vec::new(),
+            subcmd_names: Vec::new(),
+            pending_subcommands: Vec::new(),
+            visited_flattened: HashSet::new(),
+            visited_enums,
         }
     }
 
-    fn extract_subcommand_variants(
-        &self,
-        field: &syn::Field,
-        subcmd_names: &mut Vec<String>,
-        pending_subcommands: &mut Vec<PendingSubcommand>,
-        visited_enums: &mut HashSet<String>,
-    ) {
+    fn extract_struct(&mut self, struct_item: &ItemStruct) {
+        if matches!(struct_item.fields, Fields::Named(_)) {
+            visit::visit_item_struct(self, struct_item);
+        }
+    }
+
+    fn extract_subcommand_variants(&mut self, field: &Field) {
         let Some(enum_name) = extract_type_ident(&field.ty) else {
             return;
         };
-        visited_enums.insert(enum_name.clone());
-        let Some(enum_item) = self.find_enum(&enum_name) else {
+        self.visited_enums.insert(enum_name.clone());
+        let Some(enum_item) = self.ctx.find_enum(&enum_name) else {
             return;
         };
 
         let mut visitor = SubcommandVariantVisitor::default();
         visitor.visit_item_enum(enum_item);
-        subcmd_names.extend(visitor.subcmd_names);
-        pending_subcommands.extend(visitor.pending_subcommands);
+        self.subcmd_names.extend(visitor.subcmd_names);
+        self.pending_subcommands.extend(visitor.pending_subcommands);
+    }
+}
+
+impl<'ast> Visit<'ast> for CliStructFieldVisitor<'_> {
+    fn visit_field(&mut self, field: &'ast Field) {
+        let Some(ident) = field.ident.as_ref() else {
+            return;
+        };
+        let field_name = ident.to_string();
+
+        if is_flatten_field(&field.attrs)
+            && let Some(inner_type) = extract_type_ident(&field.ty)
+            && self.visited_flattened.insert(inner_type.clone())
+            && let Some(inner_struct) = self.ctx.find_struct(&inner_type)
+        {
+            self.extract_struct(inner_struct);
+        } else if is_subcommand_field(&field.attrs) {
+            self.extract_subcommand_variants(field);
+        } else {
+            self.args
+                .push(ParsedArgAttributes::extract_cli_arg(field, field_name));
+        }
+    }
+}
+
+#[derive(Default)]
+struct CliInlineFieldVisitor {
+    args: Vec<CliArgItem>,
+}
+
+impl<'ast> Visit<'ast> for CliInlineFieldVisitor {
+    fn visit_field(&mut self, field: &'ast Field) {
+        let f_name = field
+            .ident
+            .as_ref()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
+        self.args
+            .push(ParsedArgAttributes::extract_cli_arg(field, f_name));
     }
 }
 
 enum SubcommandTarget {
     Struct(String),
-    InlineFields(Vec<syn::Field>),
+    InlineArgs(Vec<CliArgItem>),
     Unit,
 }
 
@@ -505,7 +511,9 @@ impl<'ast> Visit<'ast> for SubcommandVariantVisitor {
                 }
             }
             Fields::Named(named_fields) => {
-                SubcommandTarget::InlineFields(named_fields.named.iter().cloned().collect())
+                let mut field_visitor = CliInlineFieldVisitor::default();
+                visit::visit_fields_named(&mut field_visitor, named_fields);
+                SubcommandTarget::InlineArgs(field_visitor.args)
             }
             Fields::Unit => SubcommandTarget::Unit,
         };
