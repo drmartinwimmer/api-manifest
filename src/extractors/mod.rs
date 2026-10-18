@@ -1,4 +1,6 @@
+use crate::manifest::ManifestError;
 use crate::model::ApiManifest;
+use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
@@ -7,44 +9,34 @@ pub(crate) mod library_format;
 
 pub(crate) use library::LibraryExtractor;
 
+#[derive(Debug, Default, Deserialize)]
+struct CargoManifest {
+    package: Option<CargoPackageMetadata>,
+}
+
 /// Package metadata extracted from `Cargo.toml`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub(crate) struct CargoPackageMetadata {
     pub(crate) name: String,
     pub(crate) version: Option<String>,
+    #[serde(rename = "rust-version")]
+    pub(crate) rust_version: Option<String>,
 }
 
 impl CargoPackageMetadata {
-    /// Extracts package name and version from a crate root's `Cargo.toml`.
-    pub(crate) fn from_crate_root(crate_root: &Path) -> Self {
+    /// Extracts `[package]` metadata from `Cargo.toml` in `crate_root`.
+    pub(crate) fn from_crate_root(crate_root: &Path) -> Result<Self, ManifestError> {
         let cargo_toml = crate_root.join("Cargo.toml");
-        let mut name = "unnamed".to_string();
-        let mut version = None;
-
-        if let Ok(content) = fs::read_to_string(cargo_toml) {
-            let mut in_package = false;
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with('[') {
-                    in_package = trimmed == "[package]";
-                } else if in_package {
-                    if let Some(val) = trimmed.strip_prefix("name =") {
-                        name = val.trim().trim_matches('"').trim_matches('\'').to_string();
-                    } else if let Some(val) = trimmed.strip_prefix("version =") {
-                        version = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
-                    }
-                }
-            }
-        }
-
-        Self { name, version }
+        let content = fs::read_to_string(cargo_toml)?;
+        let manifest: CargoManifest = toml::from_str(&content)?;
+        manifest.package.ok_or(ManifestError::MissingPackageSection)
     }
 }
 
 impl ApiManifest {
     /// High-level helper that auto-detects targets and extracts the public API manifest from a crate root.
-    pub(crate) fn extract_from_crate_inner(crate_root: &Path) -> std::io::Result<Self> {
-        let metadata = CargoPackageMetadata::from_crate_root(crate_root);
+    pub(crate) fn extract_from_crate_inner(crate_root: &Path) -> Result<Self, ManifestError> {
+        let metadata = CargoPackageMetadata::from_crate_root(crate_root)?;
         let mut manifest = Self::new(metadata.name, metadata.version);
 
         let lib_extractor = LibraryExtractor::new();
@@ -92,6 +84,30 @@ mod tests {
         let manifest = ApiManifest::extract_from_crate(&temp_dir)?;
         expect_that!(manifest.name, eq("demo-pkg"));
         expect_that!(manifest.version, eq(&Some("1.2.3".to_string())));
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn extract_cargo_metadata_returns_error_when_name_is_missing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "test_extract_cargo_meta_missing_name_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir)?;
+        let _guard = TempDirGuard(temp_dir.clone());
+
+        let cargo_toml = r#"
+            [package]
+            version = "1.2.3"
+        "#;
+        fs::write(temp_dir.join("Cargo.toml"), cargo_toml)?;
+
+        let result = ApiManifest::extract_from_crate(&temp_dir);
+        expect_that!(result, err(anything()));
         Ok(())
     }
 }

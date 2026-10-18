@@ -300,7 +300,7 @@ impl ApiManifest {
     }
 
     /// Auto-detects targets and extracts the public API manifest from a crate root.
-    pub fn extract_from_crate(crate_root: &Path) -> std::io::Result<Self> {
+    pub fn extract_from_crate(crate_root: &Path) -> Result<Self, ManifestError> {
         Self::extract_from_crate_inner(crate_root)
     }
 
