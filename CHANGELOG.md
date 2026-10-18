@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.1](https://github.com/drmartinwimmer/api-manifest/compare/api-manifest-v0.2.0...api-manifest-v0.2.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* **ci:** include API.md in release PR sync diff check and update API.md version ([77e4b44](https://github.com/drmartinwimmer/api-manifest/commit/77e4b44381e69ce626ec5a8aa497d08ef7ad2700))
+* **ci:** include API.md in release PR sync diff check and update API.md version ([65437b1](https://github.com/drmartinwimmer/api-manifest/commit/65437b12d690fe180dcc8ff28531307439f3d1bc))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * api-manifest-derive bumped from 0.2.0 to 0.2.1
+
 ## [0.2.0](https://github.com/drmartinwimmer/api-manifest/compare/api-manifest-v0.1.0...api-manifest-v0.2.0) (2026-10-18)
 
 
