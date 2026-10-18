@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/drmartinwimmer/api-manifest/actions/workflows/ci.yml/badge.svg)](https://github.com/drmartinwimmer/api-manifest/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/api-manifest.svg)](https://crates.io/crates/api-manifest)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Docs.rs](https://docs.rs/api-manifest/badge.svg)](https://docs.rs/api-manifest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/drmartinwimmer/api-manifest/blob/main/LICENSE)
+[![Built with Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org/)
 [![MSRV: 1.88+](https://img.shields.io/badge/MSRV-1.88%2B-blue.svg?logo=rust)](https://www.rust-lang.org/)
 
 AST-driven public API manifest generator (`API.md`) and drift detector for Rust crates and workspaces.
