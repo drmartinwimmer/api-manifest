@@ -99,17 +99,18 @@ impl ApiDumpArgs {
             return Err(ApiManifestError::PathNotFound(target_dir));
         }
 
+        let is_json_ext = self.output.extension().and_then(|s| s.to_str()) == Some("json");
         let manifest_format = match self.format {
             Some(OutputFormat::Json) => ManifestFormat::Json,
-            Some(OutputFormat::Markdown) | Some(OutputFormat::Console) | None => {
-                ManifestFormat::Markdown
-            }
+            Some(OutputFormat::Markdown) | Some(OutputFormat::Console) => ManifestFormat::Markdown,
+            None if is_json_ext => ManifestFormat::Json,
+            None => ManifestFormat::Markdown,
         };
 
         let manifest = ApiManifest::extract_from_crate(&target_dir)?;
         let content = match manifest_format {
             ManifestFormat::Markdown => manifest.format_markdown(),
-            ManifestFormat::Json => serde_json::to_string_pretty(&manifest)?,
+            ManifestFormat::Json => format!("{}\n", serde_json::to_string_pretty(&manifest)?),
         };
 
         let target_output = if self.output.is_absolute() || self.output.starts_with(&target_dir) {
@@ -196,9 +197,17 @@ impl ApiCheckArgs {
         let mut any_breaking = false;
 
         for target in targets {
-            let baseline = ApiManifest::read_from_file(&target.manifest_path)?;
             let active = ApiManifest::extract_from_crate(&target.crate_dir)?;
-            let report = active.diff(&baseline);
+            let content = fs::read_to_string(&target.manifest_path)?;
+            let is_json = target.manifest_path.extension().and_then(|s| s.to_str()) == Some("json")
+                || content.trim_start().starts_with('{');
+
+            let report = if is_json {
+                let baseline = ApiManifest::parse_str(&content)?;
+                active.diff(&baseline)
+            } else {
+                active.diff_markdown(&content)
+            };
 
             if !self.quiet && !report.is_clean() {
                 let output_format = self.format.unwrap_or(OutputFormat::Console);
@@ -242,7 +251,18 @@ impl ApiCheckArgs {
             target_dir.join(&self.manifest)
         };
 
-        if target_manifest.exists() {
+        let json_candidate = if target_manifest.extension().and_then(|s| s.to_str()) == Some("md") {
+            Some(target_manifest.with_extension("json"))
+        } else {
+            None
+        };
+
+        if let Some(json_path) = json_candidate.filter(|p| p.exists()) {
+            Ok(vec![ManifestCheckTarget {
+                crate_dir: target_dir.to_path_buf(),
+                manifest_path: json_path,
+            }])
+        } else if target_manifest.exists() {
             Ok(vec![ManifestCheckTarget {
                 crate_dir: target_dir.to_path_buf(),
                 manifest_path: target_manifest,
@@ -269,7 +289,8 @@ impl ApiCheckArgs {
 
     fn find_api_manifests(root: &Path) -> Vec<PathBuf> {
         if root.is_file() {
-            if root.file_name().and_then(|s| s.to_str()) == Some("API.md") {
+            let name = root.file_name().and_then(|s| s.to_str());
+            if name == Some("API.json") || name == Some("API.md") {
                 return vec![root.to_path_buf()];
             }
             return Vec::new();
@@ -286,6 +307,14 @@ impl ApiCheckArgs {
             return;
         };
 
+        let json_manifest = dir.join("API.json");
+        let md_manifest = dir.join("API.md");
+        if json_manifest.is_file() {
+            manifests.push(json_manifest);
+        } else if md_manifest.is_file() {
+            manifests.push(md_manifest);
+        }
+
         for entry in entries.flatten() {
             let path = entry.path();
             let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
@@ -297,8 +326,6 @@ impl ApiCheckArgs {
                     continue;
                 }
                 Self::crawl_api_manifests(&path, manifests);
-            } else if path.is_file() && name == "API.md" {
-                manifests.push(path);
             }
         }
     }
@@ -519,6 +546,121 @@ mod tests {
         let check_cmd2 =
             ApiManifestCommand::new(None, true).with_subcommand(ApiSubcommand::Check(check_args2));
         assert_that!(check_cmd2.run(), err(anything()));
+
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn run_api_check_prefers_checked_in_json_manifest_over_markdown()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "test_api_json_pref_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp_dir)?;
+        let _guard = TempDirGuard(temp_dir.clone());
+
+        let cargo_toml = r#"
+            [package]
+            name = "json-crate"
+            version = "0.1.0"
+        "#;
+        fs::write(temp_dir.join("Cargo.toml"), cargo_toml)?;
+
+        let dump_args = ApiDumpArgs::new(PathBuf::from("API.json"), Some(OutputFormat::Json), true)
+            .with_path(Some(temp_dir.clone()));
+        let dump_cmd =
+            ApiManifestCommand::new(None, true).with_subcommand(ApiSubcommand::Dump(dump_args));
+        dump_cmd.run()?;
+
+        expect_that!(temp_dir.join("API.json").exists(), is_true());
+
+        fs::write(
+            temp_dir.join("API.md"),
+            "# Outdated markdown\n- `pub fn stale()`\n",
+        )?;
+
+        let check_args = ApiCheckArgs::new(PathBuf::from("API.md"), ApiFailOn::Any, true)
+            .with_path(Some(temp_dir));
+        let check_cmd =
+            ApiManifestCommand::new(None, true).with_subcommand(ApiSubcommand::Check(check_args));
+        assert_that!(check_cmd.run(), ok(anything()));
+
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn run_api_dump_and_check_markdown_handles_positional_args_generics_and_submodules()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "test_api_issue20_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        let src_dir = temp_dir.join("src");
+        fs::create_dir_all(&src_dir)?;
+        let _guard = TempDirGuard(temp_dir.clone());
+
+        let cargo_toml = r#"
+            [package]
+            name = "ai-workspace"
+            version = "0.1.0"
+        "#;
+        fs::write(temp_dir.join("Cargo.toml"), cargo_toml)?;
+
+        let lib_rs = r#"
+            pub mod config;
+            pub use config::ConfigInitializer;
+
+            pub struct SandboxBuilder<'a> {
+                pub root: &'a str,
+            }
+
+            impl<'a> SandboxBuilder<'a> {
+                pub fn build_command(&self) -> Result<(), String> {
+                    Ok(())
+                }
+
+                #[cfg(test)]
+                pub fn with_shared_config_dir(&self) {}
+            }
+
+            #[derive(Parser, Debug)]
+            #[command(name = "aiw")]
+            pub struct Cli {
+                pub workspace_name: String,
+            }
+        "#;
+        fs::write(src_dir.join("lib.rs"), lib_rs)?;
+
+        let config_rs = r#"
+            pub struct ConfigInitializer;
+        "#;
+        fs::write(src_dir.join("config.rs"), config_rs)?;
+
+        let dump_args =
+            ApiDumpArgs::new(PathBuf::from("API.md"), None, true).with_path(Some(temp_dir.clone()));
+        let dump_cmd =
+            ApiManifestCommand::new(None, true).with_subcommand(ApiSubcommand::Dump(dump_args));
+        dump_cmd.run()?;
+
+        let md_content = fs::read_to_string(temp_dir.join("API.md"))?;
+        expect_that!(
+            md_content,
+            not(contains_substring("with_shared_config_dir"))
+        );
+        expect_that!(md_content, contains_substring("`<WORKSPACE-NAME>`"));
+
+        let check_args = ApiCheckArgs::new(PathBuf::from("API.md"), ApiFailOn::Any, true)
+            .with_path(Some(temp_dir));
+        let check_cmd =
+            ApiManifestCommand::new(None, true).with_subcommand(ApiSubcommand::Check(check_args));
+        assert_that!(check_cmd.run(), ok(anything()));
 
         Ok(())
     }

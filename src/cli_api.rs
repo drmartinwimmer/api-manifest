@@ -1,5 +1,5 @@
 use crate::diff_report::{ApiDriftReport, DriftItem, DriftSurface};
-use crate::markdown_parser::{format_aligned_table, split_markdown_cells};
+use crate::manifest::ApiManifest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -43,55 +43,6 @@ impl CliArgItem {
         } else {
             parts.join(", ")
         }
-    }
-
-    pub(crate) fn from_markdown_row(trimmed: &str) -> Option<Self> {
-        let cols = split_markdown_cells(trimmed);
-        if cols.len() < 6 {
-            return None;
-        }
-        let flag_col = cols.get(1).map(String::as_str).unwrap_or_default();
-        let type_col = cols.get(2).map(|s| s.trim_matches('`')).unwrap_or_default();
-        let req_col = cols.get(3).map(String::as_str) == Some("Yes");
-        let def_col = match cols.get(4).map(String::as_str) {
-            Some("-" | "") | None => None,
-            Some(s) => Some(s.trim_matches('`').to_string()),
-        };
-        let desc_col = match cols.get(5).map(String::as_str) {
-            Some("-" | "") | None => None,
-            Some(s) => Some(s.to_string()),
-        };
-
-        let mut short = None;
-        let mut long = None;
-        let is_positional = !flag_col.contains('-');
-        for part in flag_col.split(',').map(|p| p.trim().trim_matches('`')) {
-            if let Some(l) = part.strip_prefix("--") {
-                let l_name = l.split_whitespace().next().unwrap_or(l);
-                long = Some(l_name.to_string());
-            } else if let Some(s) = part.strip_prefix('-') {
-                short = s.chars().next();
-            }
-        }
-        let id = long
-            .clone()
-            .or_else(|| short.map(|c| c.to_string()))
-            .unwrap_or_else(|| flag_col.trim_matches('<').trim_matches('>').to_string());
-
-        Some(Self {
-            id,
-            short,
-            long,
-            value_name: if type_col == "-" {
-                None
-            } else {
-                Some(type_col.to_string())
-            },
-            required: req_col,
-            default_value: def_col,
-            help: desc_col,
-            is_positional,
-        })
     }
 }
 
@@ -231,7 +182,7 @@ impl CliApi {
                         vec![flag_col, type_col, req_col, def_col, desc_col]
                     })
                     .collect();
-                format_aligned_table(out, &headers, &rows);
+                ApiManifest::format_aligned_table(out, &headers, &rows);
             }
 
             if !cmd.subcommands.is_empty() {

@@ -1,4 +1,5 @@
 use crate::extractors::CargoPackageConfig;
+use crate::extractors::cli_args::is_cfg_test;
 use crate::extractors::library_format::{
     collect_use_tree, extract_doc_comment, format_const, format_enum, format_fn_sig, format_static,
     format_struct, format_trait, format_type_alias, is_public, normalize_tokens,
@@ -186,7 +187,7 @@ impl<'a> LibraryItemVisitor<'a> {
 
 impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     fn visit_item_struct(&mut self, item_struct: &'ast ItemStruct) {
-        if !is_public(&item_struct.vis) {
+        if is_cfg_test(&item_struct.attrs) || !is_public(&item_struct.vis) {
             return;
         }
         let name = item_struct.ident.to_string();
@@ -198,7 +199,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_enum(&mut self, item_enum: &'ast ItemEnum) {
-        if !is_public(&item_enum.vis) {
+        if is_cfg_test(&item_enum.attrs) || !is_public(&item_enum.vis) {
             return;
         }
         let name = item_enum.ident.to_string();
@@ -210,7 +211,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_fn(&mut self, item_fn: &'ast ItemFn) {
-        if !is_public(&item_fn.vis) {
+        if is_cfg_test(&item_fn.attrs) || !is_public(&item_fn.vis) {
             return;
         }
         let name = item_fn.sig.ident.to_string();
@@ -222,7 +223,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_trait(&mut self, item_trait: &'ast ItemTrait) {
-        if !is_public(&item_trait.vis) {
+        if is_cfg_test(&item_trait.attrs) || !is_public(&item_trait.vis) {
             return;
         }
         let name = item_trait.ident.to_string();
@@ -234,7 +235,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_type(&mut self, item_type: &'ast ItemType) {
-        if !is_public(&item_type.vis) {
+        if is_cfg_test(&item_type.attrs) || !is_public(&item_type.vis) {
             return;
         }
         let name = item_type.ident.to_string();
@@ -246,7 +247,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_const(&mut self, item_const: &'ast ItemConst) {
-        if !is_public(&item_const.vis) {
+        if is_cfg_test(&item_const.attrs) || !is_public(&item_const.vis) {
             return;
         }
         let name = item_const.ident.to_string();
@@ -258,7 +259,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_static(&mut self, item_static: &'ast ItemStatic) {
-        if !is_public(&item_static.vis) {
+        if is_cfg_test(&item_static.attrs) || !is_public(&item_static.vis) {
             return;
         }
         let name = item_static.ident.to_string();
@@ -270,7 +271,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_use(&mut self, item_use: &'ast ItemUse) {
-        if !is_public(&item_use.vis) {
+        if is_cfg_test(&item_use.attrs) || !is_public(&item_use.vis) {
             return;
         }
         let mut reexports = Vec::new();
@@ -291,7 +292,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_mod(&mut self, item_mod: &'ast ItemMod) {
-        if !is_public(&item_mod.vis) {
+        if is_cfg_test(&item_mod.attrs) || !is_public(&item_mod.vis) {
             return;
         }
         let mod_name = item_mod.ident.to_string();
@@ -305,7 +306,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_item_impl(&mut self, item_impl: &'ast ItemImpl) {
-        if item_impl.trait_.is_some() {
+        if is_cfg_test(&item_impl.attrs) || item_impl.trait_.is_some() {
             return;
         }
         let self_ty = normalize_tokens(&item_impl.self_ty);
@@ -315,7 +316,7 @@ impl<'ast> Visit<'ast> for LibraryItemVisitor<'_> {
     }
 
     fn visit_impl_item_fn(&mut self, method: &'ast ImplItemFn) {
-        if !is_public(&method.vis) {
+        if is_cfg_test(&method.attrs) || !is_public(&method.vis) {
             return;
         }
         let Some(ref self_ty) = self.current_impl_ty else {
@@ -364,7 +365,7 @@ impl<'a> ReexportTargetVisitor<'a> {
 
 impl<'ast> Visit<'ast> for ReexportTargetVisitor<'_> {
     fn visit_item_struct(&mut self, item_struct: &'ast ItemStruct) {
-        if item_struct.ident != self.target_name {
+        if is_cfg_test(&item_struct.attrs) || item_struct.ident != self.target_name {
             return;
         }
         let name = item_struct.ident.to_string();
@@ -377,7 +378,7 @@ impl<'ast> Visit<'ast> for ReexportTargetVisitor<'_> {
     }
 
     fn visit_item_enum(&mut self, item_enum: &'ast ItemEnum) {
-        if item_enum.ident != self.target_name {
+        if is_cfg_test(&item_enum.attrs) || item_enum.ident != self.target_name {
             return;
         }
         let name = item_enum.ident.to_string();
@@ -390,7 +391,7 @@ impl<'ast> Visit<'ast> for ReexportTargetVisitor<'_> {
     }
 
     fn visit_item_trait(&mut self, item_trait: &'ast ItemTrait) {
-        if item_trait.ident != self.target_name {
+        if is_cfg_test(&item_trait.attrs) || item_trait.ident != self.target_name {
             return;
         }
         let name = item_trait.ident.to_string();
@@ -403,7 +404,7 @@ impl<'ast> Visit<'ast> for ReexportTargetVisitor<'_> {
     }
 
     fn visit_item_fn(&mut self, item_fn: &'ast ItemFn) {
-        if item_fn.sig.ident != self.target_name {
+        if is_cfg_test(&item_fn.attrs) || item_fn.sig.ident != self.target_name {
             return;
         }
         let name = item_fn.sig.ident.to_string();
@@ -416,11 +417,12 @@ impl<'ast> Visit<'ast> for ReexportTargetVisitor<'_> {
     }
 
     fn visit_item_impl(&mut self, item_impl: &'ast ItemImpl) {
-        if item_impl.trait_.is_some() {
+        if is_cfg_test(&item_impl.attrs) || item_impl.trait_.is_some() {
             return;
         }
         let self_ty = normalize_tokens(&item_impl.self_ty);
-        if self_ty == self.target_name {
+        let base_ty = self_ty.split('<').next().map(str::trim).unwrap_or(&self_ty);
+        if base_ty == self.target_name {
             self.with_impl_ty(self_ty, |this| {
                 visit::visit_item_impl(this, item_impl);
             });
@@ -428,7 +430,7 @@ impl<'ast> Visit<'ast> for ReexportTargetVisitor<'_> {
     }
 
     fn visit_impl_item_fn(&mut self, method: &'ast ImplItemFn) {
-        if !is_public(&method.vis) {
+        if is_cfg_test(&method.attrs) || !is_public(&method.vis) {
             return;
         }
         let Some(ref self_ty) = self.current_impl_ty else {
@@ -532,6 +534,59 @@ mod tests {
             method_item.signature,
             contains_substring("pub fn Greeter::new(message: String) -> Self")
         );
+
+        Ok(())
+    }
+
+    #[googletest::test]
+    fn extract_library_items_ignores_cfg_test_items_and_methods()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let code = r#"
+            pub struct SandboxBuilder<'a> {
+                pub name: &'a str,
+                #[cfg(test)]
+                pub test_only_field: bool,
+            }
+
+            #[cfg(test)]
+            pub struct TestHelper;
+
+            #[cfg(test)]
+            pub fn test_helper_fn() {}
+
+            impl<'a> SandboxBuilder<'a> {
+                pub fn build_command(&self) -> Result<(), String> {
+                    Ok(())
+                }
+
+                #[cfg(test)]
+                pub fn with_shared_config_dir(&self) {}
+            }
+
+            #[cfg(test)]
+            impl<'a> SandboxBuilder<'a> {
+                pub fn extra_test_method(&self) {}
+            }
+        "#;
+
+        let file = syn::parse_file(code)?;
+        let extractor = LibraryExtractor::new();
+        let api = extractor.extract_from_file(&file, "demo");
+
+        expect_that!(api.items.len(), eq(2));
+        let names: Vec<String> = api.items.iter().map(|i| i.name.clone()).collect();
+        expect_that!(names.contains(&"SandboxBuilder".to_string()), is_true());
+        expect_that!(
+            names.contains(&"SandboxBuilder < 'a >::build_command".to_string()),
+            is_true()
+        );
+
+        let sb = api
+            .items
+            .iter()
+            .find(|i| i.name == "SandboxBuilder")
+            .ok_or("SandboxBuilder missing")?;
+        expect_that!(sb.signature, not(contains_substring("test_only_field")));
 
         Ok(())
     }

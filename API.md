@@ -24,7 +24,7 @@
 - `pub fn ApiManifest::diff(& self, baseline: & Self) -> ApiDriftReport` — _Diffs this active `ApiManifest` against a checked-in baseline manifest._
 - `pub fn ApiManifest::extract_from_crate(crate_root: & Path) -> Result < Self , ManifestError >` — _Auto-detects targets and extracts the public API manifest from a crate root._
 - `pub fn ApiManifest::format_markdown(& self) -> String` — _Formats this `ApiManifest` as GitHub Flavored Markdown (`API.md`)._
-- `pub fn ApiManifest::read_from_file(path: & Path) -> Result < Self , ManifestError >` — _Reads and parses an `ApiManifest` from disk (supports Markdown or JSON)._
+- `pub fn ApiManifest::read_from_file(path: & Path) -> Result < Self , ManifestError >` — _Reads and parses a JSON `ApiManifest` from disk._
 - `pub fn ApiManifestCommand::run(self) -> Result < () , ApiManifestError >` — _Runs the API command (defaults to check if no subcommand is given)._
 
 ### Traits

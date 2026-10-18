@@ -1,13 +1,13 @@
 use crate::cli_api::CliApi;
-use crate::diff_report::ApiDriftReport;
+use crate::diff_report::{ApiDriftReport, DriftItem, DriftSurface};
 use crate::extractors::{
     CargoPackageConfig, CliExtractor, ConfigExtractor, HttpExtractor, LibraryExtractor,
 };
 use crate::http_api::HttpApi;
 use crate::library_api::LibraryApi;
-use crate::markdown_parser::MarkdownParseState;
 use crate::schema_api::ConfigApi;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use toml::de;
@@ -134,20 +134,14 @@ impl ApiManifest {
         Ok(manifest)
     }
 
-    /// Reads and parses an `ApiManifest` from disk (supports Markdown or JSON).
+    /// Reads and parses a JSON `ApiManifest` from disk.
     pub fn read_from_file(path: &Path) -> Result<Self, ManifestError> {
         let content = fs::read_to_string(path)?;
         Self::parse_str(&content)
     }
 
     pub(crate) fn parse_str(content: &str) -> Result<Self, ManifestError> {
-        let trimmed = content.trim();
-
-        if trimmed.starts_with('{') {
-            return serde_json::from_str(trimmed).map_err(ManifestError::Json);
-        }
-
-        Ok(MarkdownParseState::parse_str(content))
+        serde_json::from_str(content.trim()).map_err(ManifestError::Json)
     }
 
     /// Formats this `ApiManifest` as GitHub Flavored Markdown (`API.md`).
@@ -190,6 +184,48 @@ impl ApiManifest {
         format!("{trimmed}\n")
     }
 
+    pub(crate) fn format_aligned_table(out: &mut String, headers: &[&str], rows: &[Vec<String>]) {
+        let col_count = headers.len();
+        let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
+
+        for row in rows {
+            for (i, cell) in row.iter().enumerate() {
+                if let Some(w) = widths.get_mut(i) {
+                    let len = cell.chars().count();
+                    if len > *w {
+                        *w = len;
+                    }
+                }
+            }
+        }
+
+        out.push('|');
+        for (i, h) in headers.iter().enumerate() {
+            let w = widths.get(i).copied().unwrap_or(3).max(3);
+            out.push_str(&format!(" {h:<w$} |"));
+        }
+        out.push('\n');
+
+        out.push('|');
+        for i in 0..col_count {
+            let w = widths.get(i).copied().unwrap_or(3).max(3);
+            let dashes = "-".repeat(w);
+            out.push_str(&format!(" {dashes} |"));
+        }
+        out.push('\n');
+
+        for row in rows {
+            out.push('|');
+            for i in 0..col_count {
+                let cell = row.get(i).map(String::as_str).unwrap_or_default();
+                let w = widths.get(i).copied().unwrap_or(3).max(3);
+                out.push_str(&format!(" {cell:<w$} |"));
+            }
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
     /// Diffs this active `ApiManifest` against a checked-in baseline manifest.
     pub fn diff(&self, baseline: &Self) -> ApiDriftReport {
         let mut report = ApiDriftReport::default();
@@ -217,6 +253,116 @@ impl ApiManifest {
         report.sort();
         report
     }
+
+    /// Diffs this active `ApiManifest` against a checked-in Markdown manifest (`API.md`)
+    /// by generating a new Markdown document and comparing lines.
+    pub(crate) fn diff_markdown(&self, baseline_markdown: &str) -> ApiDriftReport {
+        let active_markdown = self.format_markdown();
+        let normalized_baseline = baseline_markdown.replace("\r\n", "\n");
+
+        if active_markdown.trim() == normalized_baseline.trim() {
+            return ApiDriftReport::default();
+        }
+
+        let base_entries = Self::extract_markdown_entries(&normalized_baseline);
+        let active_entries = Self::extract_markdown_entries(&active_markdown);
+
+        let base_set: HashSet<&(DriftSurface, String)> = base_entries.iter().collect();
+        let active_set: HashSet<&(DriftSurface, String)> = active_entries.iter().collect();
+
+        let mut report = ApiDriftReport::default();
+
+        for entry in &base_entries {
+            if !active_set.contains(entry) {
+                report.add_removal(DriftItem::new(
+                    entry.0,
+                    entry.1.clone(),
+                    "Removed from markdown manifest".to_string(),
+                    true,
+                    Some(entry.1.clone()),
+                    None,
+                ));
+            }
+        }
+
+        for entry in &active_entries {
+            if !base_set.contains(entry) {
+                report.add_addition(DriftItem::new(
+                    entry.0,
+                    entry.1.clone(),
+                    "Added to markdown manifest".to_string(),
+                    false,
+                    None,
+                    Some(entry.1.clone()),
+                ));
+            }
+        }
+
+        if report.is_clean() {
+            report.add_modification(DriftItem::new(
+                DriftSurface::Library,
+                self.name.clone(),
+                "Markdown manifest formatting or header metadata drifted".to_string(),
+                false,
+                None,
+                None,
+            ));
+        }
+
+        report.sort();
+        report
+    }
+
+    fn extract_markdown_entries(markdown: &str) -> Vec<(DriftSurface, String)> {
+        let mut entries = Vec::new();
+        let mut current_surface = DriftSurface::Library;
+
+        for line in markdown.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("<!--") {
+                continue;
+            }
+            if trimmed.contains(". Library API") {
+                current_surface = DriftSurface::Library;
+                continue;
+            }
+            if trimmed.contains(". CLI API") {
+                current_surface = DriftSurface::Cli;
+                continue;
+            }
+            if trimmed.contains(". HTTP Endpoints") {
+                current_surface = DriftSurface::Http;
+                continue;
+            }
+            if trimmed.contains(". Configuration Formats") {
+                current_surface = DriftSurface::Config;
+                continue;
+            }
+            if trimmed.starts_with('#')
+                || trimmed == "**Subcommands:**"
+                || trimmed.starts_with("| ---")
+                || trimmed.starts_with("| Flag / Argument")
+                || trimmed.starts_with("| Method")
+                || trimmed.starts_with("| Key")
+            {
+                continue;
+            }
+
+            let normalized = if trimmed.starts_with('|') {
+                trimmed
+                    .split('|')
+                    .map(str::trim)
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            } else {
+                trimmed.to_string()
+            };
+
+            entries.push((current_surface, normalized));
+        }
+
+        entries
+    }
 }
 
 #[cfg(test)]
@@ -227,7 +373,7 @@ mod tests {
     use googletest::prelude::*;
 
     #[googletest::test]
-    fn format_and_parse_roundtrip_preserves_manifest() -> Result<(), Box<dyn std::error::Error>> {
+    fn format_markdown_and_diff_markdown_roundtrip_is_clean() {
         let mut manifest = ApiManifest::new("demo-crate", Some("1.0.0".to_string()));
         let lib_item = LibraryItem::new(
             ItemKind::Function,
@@ -245,17 +391,8 @@ mod tests {
         );
         expect_that!(md, contains_substring("pub fn add(a: i32, b: i32) -> i32"));
 
-        let parsed = ApiManifest::parse_str(&md)?;
-        expect_that!(parsed.name, eq("demo-crate"));
-        expect_that!(parsed.version, eq(&Some("1.0.0".to_string())));
-
-        let lib = parsed.library.ok_or("Library API missing")?;
-        expect_that!(lib.items.len(), eq(1));
-        let item = lib.items.first().ok_or("Item missing")?;
-        expect_that!(item.name, eq("add"));
-        expect_that!(item.signature, eq("pub fn add(a: i32, b: i32) -> i32"));
-
-        Ok(())
+        let report = manifest.diff_markdown(&md);
+        expect_that!(report.is_clean(), is_true());
     }
 
     #[googletest::test]
@@ -269,15 +406,14 @@ mod tests {
     }
 
     #[googletest::test]
-    fn format_and_parse_member_functions_preserves_struct_name()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn format_markdown_and_diff_generic_methods_and_submodules_is_clean() {
         let mut manifest = ApiManifest::new("demo-crate", Some("1.0.0".to_string()));
         let method_item = LibraryItem::new(
             ItemKind::Method,
-            "Greeter::new",
-            "demo_crate::Greeter::new",
-            "pub fn Greeter::new(msg: String) -> Self",
-            Some("Constructs a greeter".to_string()),
+            "SandboxBuilder < 'a >::build_command",
+            "demo_crate::sandbox::SandboxBuilder < 'a >::build_command",
+            "pub fn SandboxBuilder < 'a >::build_command(& self) -> Result < Command , SandboxError >",
+            Some("Builds the sandbox command".to_string()),
         );
         manifest = manifest.with_library(LibraryApi::new(vec![method_item]));
 
@@ -285,21 +421,13 @@ mod tests {
         expect_that!(md, contains_substring("### Methods"));
         expect_that!(
             md,
-            contains_substring("pub fn Greeter::new(msg: String) -> Self")
+            contains_substring(
+                "pub fn SandboxBuilder < 'a >::build_command(& self) -> Result < Command , SandboxError >"
+            )
         );
 
-        let parsed = ApiManifest::parse_str(&md)?;
-        let lib = parsed.library.ok_or("Library API missing")?;
-        expect_that!(lib.items.len(), eq(1));
-        let item = lib.items.first().ok_or("Item missing")?;
-        expect_that!(item.name, eq("Greeter::new"));
-        expect_that!(item.kind, eq(ItemKind::Method));
-        expect_that!(
-            item.signature,
-            eq("pub fn Greeter::new(msg: String) -> Self")
-        );
-
-        Ok(())
+        let report = manifest.diff_markdown(&md);
+        expect_that!(report.is_clean(), is_true());
     }
 
     #[googletest::test]

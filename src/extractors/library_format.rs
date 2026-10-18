@@ -1,3 +1,4 @@
+use crate::extractors::cli_args::is_cfg_test;
 use quote::ToTokens;
 use syn::visit::{self, Visit};
 use syn::{
@@ -96,6 +97,9 @@ struct StructFieldFormatter {
 
 impl<'ast> Visit<'ast> for StructFieldFormatter {
     fn visit_field(&mut self, f: &'ast Field) {
+        if is_cfg_test(&f.attrs) {
+            return;
+        }
         if let Some(ident) = f.ident.as_ref() {
             if is_public(&f.vis) {
                 let f_ty = normalize_tokens(&f.ty);
