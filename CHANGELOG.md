@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0](https://github.com/drmartinwimmer/api-manifest/compare/api-manifest-v0.2.1...api-manifest-v0.3.0) (2026-10-18)
+
+
+### Features
+
+* add ApiManifest::check_path and support workspace Cargo.toml fields ([b0475a7](https://github.com/drmartinwimmer/api-manifest/commit/b0475a76096cfd29f2fe7fec0a8388ea372379ce))
+* add ApiManifest::check_path and support workspace Cargo.toml fields ([a0ffcbd](https://github.com/drmartinwimmer/api-manifest/commit/a0ffcbd3c5687bec0a5884827cbbe62013d9989e)), closes [#21](https://github.com/drmartinwimmer/api-manifest/issues/21)
+
+
+### Bug Fixes
+
+* replace markdown parsing with direct markdown diff and JSON manifest check ([ef01840](https://github.com/drmartinwimmer/api-manifest/commit/ef018408697c8b9499bb73970716bc93aeeca1c2))
+* replace markdown parsing with direct markdown diff and JSON manifest check ([741ab24](https://github.com/drmartinwimmer/api-manifest/commit/741ab24092b6cb3e985afb3a179dac0f0deb4a1b))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * api-manifest-derive bumped from 0.2.1 to 0.3.0
+
 ## [0.2.1](https://github.com/drmartinwimmer/api-manifest/compare/api-manifest-v0.2.0...api-manifest-v0.2.1) (2026-10-18)
 
 
