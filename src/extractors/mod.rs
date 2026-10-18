@@ -1,3 +1,4 @@
+use crate::ConfigFile;
 use crate::manifest::ManifestError;
 use serde::Deserialize;
 use std::fs;
@@ -15,7 +16,8 @@ pub(crate) use config::ConfigExtractor;
 pub(crate) use http::HttpExtractor;
 pub(crate) use library::LibraryExtractor;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, ConfigFile)]
+#[config_file("Cargo.toml")]
 struct CargoManifest {
     package: Option<CargoPackageMetadata>,
 }
@@ -23,8 +25,11 @@ struct CargoManifest {
 /// Package metadata extracted from `Cargo.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub(crate) struct CargoPackageMetadata {
+    /// Package name
     pub(crate) name: String,
+    /// Package version
     pub(crate) version: Option<String>,
+    /// Minimum supported Rust version
     #[serde(rename = "rust-version")]
     pub(crate) rust_version: Option<String>,
 }
@@ -32,7 +37,7 @@ pub(crate) struct CargoPackageMetadata {
 impl CargoPackageMetadata {
     /// Extracts `[package]` metadata from `Cargo.toml` in `crate_root`.
     pub(crate) fn from_crate_root(crate_root: &Path) -> Result<Self, ManifestError> {
-        let cargo_toml = crate_root.join("Cargo.toml");
+        let cargo_toml = crate_root.join(CargoManifest::config_file_path());
         let content = fs::read_to_string(cargo_toml)?;
         let manifest: CargoManifest = toml::from_str(&content)?;
         manifest.package.ok_or(ManifestError::MissingPackageSection)

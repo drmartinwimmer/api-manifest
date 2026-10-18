@@ -225,6 +225,15 @@ impl MarkdownParseState {
             && let Some(opt) = ConfigOptionItem::from_markdown_row(trimmed)
         {
             sec.options.push(opt);
+        } else if !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+            && !trimmed.starts_with('|')
+            && !trimmed.starts_with("<!--")
+            && let Some(ref mut sec) = self.current_cfg_sec
+            && sec.doc.is_none()
+            && sec.options.is_empty()
+        {
+            sec.doc = Some(trimmed.to_string());
         }
     }
 
