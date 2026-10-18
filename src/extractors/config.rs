@@ -1,5 +1,5 @@
 use crate::extractors::cli_args::{
-    extract_doc_comment, extract_type_ident, has_derive_attribute, to_kebab_case,
+    extract_doc_comment, extract_type_ident, has_derive_attribute, is_cfg_test, to_kebab_case,
 };
 use crate::manifest::ManifestError;
 use crate::schema_api::{ConfigApi, ConfigOptionItem, ConfigSectionItem};
@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use syn::visit::{Visit, visit_item_mod, visit_item_struct};
-use syn::{Attribute, Fields, ItemMod, ItemStruct, Lit};
+use syn::{Attribute, Field, Fields, ItemMod, ItemStruct, Lit};
 
 /// Extractor for configuration file formats (e.g. `Cargo.toml` tables) defined via `ConfigFile`.
 #[derive(Debug, Default)]
@@ -85,12 +85,6 @@ struct ConfigSectionVisitor {
 }
 
 impl ConfigSectionVisitor {
-    fn is_cfg_test(attrs: &[Attribute]) -> bool {
-        attrs.iter().any(|attr| {
-            attr.path().is_ident("cfg") && attr.meta.to_token_stream().to_string().contains("test")
-        })
-    }
-
     fn is_config_struct(item_struct: &ItemStruct) -> bool {
         has_derive_attribute(&item_struct.attrs, "ConfigFile")
             || Self::has_config_file_attribute(&item_struct.attrs)
@@ -116,6 +110,14 @@ impl ConfigSectionVisitor {
         self.sections
     }
 
+    fn with_visited(&mut self, name: String, f: impl FnOnce(&mut Self)) {
+        if !self.visited.insert(name.clone()) {
+            return;
+        }
+        f(self);
+        self.visited.remove(&name);
+    }
+
     fn extract_struct_sections(
         &mut self,
         item_struct: &ItemStruct,
@@ -127,31 +129,31 @@ impl ConfigSectionVisitor {
             return;
         }
         let struct_name = item_struct.ident.to_string();
-        if !self.visited.insert(struct_name.clone()) {
-            return;
-        }
-
-        let mut leaf_options = Vec::new();
-        let has_nested_sections =
-            self.collect_struct_fields(item_struct, section_prefix, file_format, &mut leaf_options);
-
-        if !leaf_options.is_empty() || !has_nested_sections {
-            let sec_name = match section_prefix {
-                Some(prefix) => Self::format_section_header(prefix),
-                None => {
-                    let kebab = to_kebab_case(&item_struct.ident.to_string());
-                    format!("[{kebab}]")
-                }
-            };
-            self.sections.push(ConfigSectionItem::new(
-                sec_name,
+        self.with_visited(struct_name, |this| {
+            let mut leaf_options = Vec::new();
+            let has_nested_sections = this.collect_struct_fields(
+                item_struct,
+                section_prefix,
                 file_format,
-                section_doc,
-                leaf_options,
-            ));
-        }
+                &mut leaf_options,
+            );
 
-        self.visited.remove(&struct_name);
+            if !leaf_options.is_empty() || !has_nested_sections {
+                let sec_name = match section_prefix {
+                    Some(prefix) => Self::format_section_header(prefix),
+                    None => {
+                        let kebab = to_kebab_case(&item_struct.ident.to_string());
+                        format!("[{kebab}]")
+                    }
+                };
+                this.sections.push(ConfigSectionItem::new(
+                    sec_name,
+                    file_format,
+                    section_doc,
+                    leaf_options,
+                ));
+            }
+        });
     }
 
     fn collect_struct_fields(
@@ -161,59 +163,19 @@ impl ConfigSectionVisitor {
         file_format: &str,
         leaf_options: &mut Vec<ConfigOptionItem>,
     ) -> bool {
-        let Fields::Named(ref named_fields) = item_struct.fields else {
+        if !matches!(item_struct.fields, Fields::Named(_)) {
             return false;
-        };
-
-        let mut has_nested_sections = false;
-
-        for field in &named_fields.named {
-            if Self::is_cfg_test(&field.attrs) {
-                continue;
-            }
-            let Some(ident) = field.ident.as_ref() else {
-                continue;
-            };
-            let field_meta = FieldAttributeConfig::from_attrs(&field.attrs);
-            let key = field_meta.renamed_key.unwrap_or_else(|| ident.to_string());
-
-            if let Some(type_ident) = extract_type_ident(&field.ty)
-                && let Some(nested_struct) = self.structs.get(&type_ident).cloned()
-            {
-                if field_meta.flatten {
-                    has_nested_sections |= self.collect_flattened_fields(
-                        &nested_struct,
-                        section_prefix,
-                        file_format,
-                        leaf_options,
-                    );
-                } else {
-                    has_nested_sections = true;
-                    let nested_prefix =
-                        Self::resolve_nested_prefix(&nested_struct.attrs, section_prefix, &key);
-                    let nested_doc = extract_doc_comment(&field.attrs)
-                        .or_else(|| extract_doc_comment(&nested_struct.attrs));
-                    self.extract_struct_sections(
-                        &nested_struct,
-                        Some(&nested_prefix),
-                        file_format,
-                        nested_doc,
-                    );
-                }
-                continue;
-            }
-
-            let val_type = Self::format_field_type(&field.ty);
-            let opt_doc = extract_doc_comment(&field.attrs);
-            leaf_options.push(ConfigOptionItem::new(
-                key,
-                val_type,
-                field_meta.default_value,
-                opt_doc,
-            ));
         }
 
-        has_nested_sections
+        let mut field_visitor = ConfigFieldVisitor {
+            section_visitor: self,
+            section_prefix,
+            file_format,
+            leaf_options,
+            has_nested_sections: false,
+        };
+        visit_item_struct(&mut field_visitor, item_struct);
+        field_visitor.has_nested_sections
     }
 
     fn collect_flattened_fields(
@@ -224,12 +186,15 @@ impl ConfigSectionVisitor {
         leaf_options: &mut Vec<ConfigOptionItem>,
     ) -> bool {
         let nested_name = nested_struct.ident.to_string();
-        if !self.visited.insert(nested_name.clone()) {
-            return false;
-        }
-        let has_nested =
-            self.collect_struct_fields(nested_struct, section_prefix, file_format, leaf_options);
-        self.visited.remove(&nested_name);
+        let mut has_nested = false;
+        self.with_visited(nested_name, |this| {
+            has_nested = this.collect_struct_fields(
+                nested_struct,
+                section_prefix,
+                file_format,
+                leaf_options,
+            );
+        });
         has_nested
     }
 
@@ -321,14 +286,14 @@ impl ConfigSectionVisitor {
 
 impl<'ast> Visit<'ast> for ConfigSectionVisitor {
     fn visit_item_mod(&mut self, node: &'ast ItemMod) {
-        if Self::is_cfg_test(&node.attrs) {
+        if is_cfg_test(&node.attrs) {
             return;
         }
         visit_item_mod(self, node);
     }
 
     fn visit_item_struct(&mut self, node: &'ast ItemStruct) {
-        if Self::is_cfg_test(&node.attrs) {
+        if is_cfg_test(&node.attrs) {
             return;
         }
         let name = node.ident.to_string();
@@ -337,6 +302,65 @@ impl<'ast> Visit<'ast> for ConfigSectionVisitor {
         }
         self.structs.insert(name, node.clone());
         visit_item_struct(self, node);
+    }
+}
+
+struct ConfigFieldVisitor<'a> {
+    section_visitor: &'a mut ConfigSectionVisitor,
+    section_prefix: Option<&'a str>,
+    file_format: &'a str,
+    leaf_options: &'a mut Vec<ConfigOptionItem>,
+    has_nested_sections: bool,
+}
+
+impl<'ast> Visit<'ast> for ConfigFieldVisitor<'_> {
+    fn visit_field(&mut self, field: &'ast Field) {
+        if is_cfg_test(&field.attrs) {
+            return;
+        }
+        let Some(ident) = field.ident.as_ref() else {
+            return;
+        };
+        let field_meta = FieldAttributeConfig::from_attrs(&field.attrs);
+        let key = field_meta.renamed_key.unwrap_or_else(|| ident.to_string());
+
+        if let Some(type_ident) = extract_type_ident(&field.ty)
+            && let Some(nested_struct) = self.section_visitor.structs.get(&type_ident).cloned()
+        {
+            if field_meta.flatten {
+                self.has_nested_sections |= self.section_visitor.collect_flattened_fields(
+                    &nested_struct,
+                    self.section_prefix,
+                    self.file_format,
+                    self.leaf_options,
+                );
+            } else {
+                self.has_nested_sections = true;
+                let nested_prefix = ConfigSectionVisitor::resolve_nested_prefix(
+                    &nested_struct.attrs,
+                    self.section_prefix,
+                    &key,
+                );
+                let nested_doc = extract_doc_comment(&field.attrs)
+                    .or_else(|| extract_doc_comment(&nested_struct.attrs));
+                self.section_visitor.extract_struct_sections(
+                    &nested_struct,
+                    Some(&nested_prefix),
+                    self.file_format,
+                    nested_doc,
+                );
+            }
+            return;
+        }
+
+        let val_type = ConfigSectionVisitor::format_field_type(&field.ty);
+        let opt_doc = extract_doc_comment(&field.attrs);
+        self.leaf_options.push(ConfigOptionItem::new(
+            key,
+            val_type,
+            field_meta.default_value,
+            opt_doc,
+        ));
     }
 }
 
@@ -465,12 +489,12 @@ mod tests {
         let code = r#"
             #[derive(ConfigFile)]
             #[config_file("Cargo.toml")]
-            struct CargoManifest {
-                package: Option<CargoPackageMetadata>,
+            struct CargoManifestConfig {
+                package: Option<CargoPackageConfig>,
             }
 
             /// Package metadata extracted from Cargo.toml.
-            struct CargoPackageMetadata {
+            struct CargoPackageConfig {
                 /// Package name
                 name: String,
                 /// Package version

@@ -19,7 +19,7 @@ pub use manifest::{ApiManifest, ManifestError};
 
 #[cfg(test)]
 mod tests {
-    use crate::extractors::CargoPackageMetadata;
+    use crate::extractors::CargoPackageConfig;
     use googletest::prelude::*;
     use std::fs;
     use std::path::Path;
@@ -27,7 +27,7 @@ mod tests {
     #[googletest::test]
     fn verify_msrv_badge_consistency_succeeds() -> Result<(), Box<dyn std::error::Error>> {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let metadata = CargoPackageMetadata::from_crate_root(manifest_dir)?;
+        let metadata = CargoPackageConfig::from_crate_root(manifest_dir)?;
         let rust_version = metadata
             .rust_version
             .ok_or("rust-version not found in Cargo.toml")?;

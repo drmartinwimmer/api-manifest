@@ -1,8 +1,9 @@
 use quote::ToTokens;
 use syn::visit::{self, Visit};
 use syn::{
-    Attribute, Expr, ExprLit, Fields, FnArg, ItemConst, ItemEnum, ItemStatic, ItemStruct,
-    ItemTrait, ItemType, Lit, Meta, ReturnType, TraitItem, UseTree, Variant, Visibility,
+    Attribute, Expr, ExprLit, Field, Fields, FnArg, ItemConst, ItemEnum, ItemStatic, ItemStruct,
+    ItemTrait, ItemType, Lit, Meta, ReturnType, TraitItemConst, TraitItemFn, TraitItemType,
+    UseTree, Variant, Visibility,
 };
 
 pub(crate) fn is_public(vis: &Visibility) -> bool {
@@ -88,44 +89,67 @@ pub(crate) fn format_fn_sig(sig: &syn::Signature, prefix: Option<&str>) -> Strin
     s
 }
 
+#[derive(Default)]
+struct StructFieldFormatter {
+    fields: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for StructFieldFormatter {
+    fn visit_field(&mut self, f: &'ast Field) {
+        if let Some(ident) = f.ident.as_ref() {
+            if is_public(&f.vis) {
+                let f_ty = normalize_tokens(&f.ty);
+                self.fields.push(format!("pub {ident}: {f_ty}"));
+            }
+        } else if is_public(&f.vis) {
+            self.fields.push(format!("pub {}", normalize_tokens(&f.ty)));
+        } else {
+            self.fields.push("/* private */".to_string());
+        }
+    }
+}
+
 pub(crate) fn format_struct(item: &ItemStruct) -> String {
     let mut s = format!("pub struct {}", item.ident);
     if !item.generics.params.is_empty() {
         s.push_str(&normalize_tokens(&item.generics));
     }
 
+    let mut formatter = StructFieldFormatter::default();
+    visit::visit_item_struct(&mut formatter, item);
+
     match &item.fields {
-        Fields::Named(named) => {
-            let mut pub_fields = Vec::new();
-            for f in &named.named {
-                if is_public(&f.vis) {
-                    let f_name = f.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
-                    let f_ty = normalize_tokens(&f.ty);
-                    pub_fields.push(format!("pub {f_name}: {f_ty}"));
-                }
-            }
-            if pub_fields.is_empty() {
+        Fields::Named(_) => {
+            if formatter.fields.is_empty() {
                 s.push_str(" { /* no public fields */ }");
             } else {
-                s.push_str(&format!(" {{ {} }}", pub_fields.join(", ")));
+                s.push_str(&format!(" {{ {} }}", formatter.fields.join(", ")));
             }
         }
-        Fields::Unnamed(unnamed) => {
-            let mut pub_fields = Vec::new();
-            for f in &unnamed.unnamed {
-                if is_public(&f.vis) {
-                    pub_fields.push(format!("pub {}", normalize_tokens(&f.ty)));
-                } else {
-                    pub_fields.push("/* private */".to_string());
-                }
-            }
-            s.push_str(&format!("({});", pub_fields.join(", ")));
+        Fields::Unnamed(_) => {
+            s.push_str(&format!("({});", formatter.fields.join(", ")));
         }
         Fields::Unit => {
             s.push(';');
         }
     }
     s
+}
+
+#[derive(Default)]
+struct VariantFieldFormatter {
+    fields: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for VariantFieldFormatter {
+    fn visit_field(&mut self, f: &'ast Field) {
+        let f_ty = normalize_tokens(&f.ty);
+        if let Some(ident) = f.ident.as_ref() {
+            self.fields.push(format!("{ident}: {f_ty}"));
+        } else {
+            self.fields.push(f_ty);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -136,33 +160,16 @@ struct EnumVariantFormatter {
 impl<'ast> Visit<'ast> for EnumVariantFormatter {
     fn visit_variant(&mut self, v: &'ast Variant) {
         let v_name = v.ident.to_string();
+        let mut field_formatter = VariantFieldFormatter::default();
+        visit::visit_variant(&mut field_formatter, v);
+        let fields = field_formatter.fields.join(", ");
+
         let formatted = match &v.fields {
-            Fields::Named(named) => {
-                let fields = named
-                    .named
-                    .iter()
-                    .map(|f| {
-                        let f_name = f.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
-                        let f_ty = normalize_tokens(&f.ty);
-                        format!("{f_name}: {f_ty}")
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{v_name} {{ {fields} }}")
-            }
-            Fields::Unnamed(unnamed) => {
-                let fields = unnamed
-                    .unnamed
-                    .iter()
-                    .map(|f| normalize_tokens(&f.ty))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{v_name}({fields})")
-            }
+            Fields::Named(_) => format!("{v_name} {{ {fields} }}"),
+            Fields::Unnamed(_) => format!("{v_name}({fields})"),
             Fields::Unit => v_name,
         };
         self.variants.push(formatted);
-        visit::visit_variant(self, v);
     }
 }
 
@@ -179,6 +186,33 @@ pub(crate) fn format_enum(item: &ItemEnum) -> String {
     s
 }
 
+#[derive(Default)]
+struct TraitItemFormatter {
+    items: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for TraitItemFormatter {
+    fn visit_trait_item_fn(&mut self, fn_item: &'ast TraitItemFn) {
+        let mut method_sig = format_fn_sig(&fn_item.sig, None);
+        if method_sig.starts_with("pub fn ") {
+            method_sig = method_sig.replacen("pub fn ", "fn ", 1);
+        }
+        self.items.push(format!("{method_sig};"));
+    }
+
+    fn visit_trait_item_type(&mut self, ty_item: &'ast TraitItemType) {
+        self.items.push(format!("type {};", ty_item.ident));
+    }
+
+    fn visit_trait_item_const(&mut self, c_item: &'ast TraitItemConst) {
+        self.items.push(format!(
+            "const {}: {};",
+            c_item.ident,
+            normalize_tokens(&c_item.ty)
+        ));
+    }
+}
+
 pub(crate) fn format_trait(item: &ItemTrait) -> String {
     let mut s = format!("pub trait {}", item.ident);
     if !item.generics.params.is_empty() {
@@ -189,30 +223,9 @@ pub(crate) fn format_trait(item: &ItemTrait) -> String {
         s.push_str(&normalize_tokens(&item.supertraits));
     }
     s.push_str(" { ");
-    let mut items = Vec::new();
-    for trait_item in &item.items {
-        match trait_item {
-            TraitItem::Fn(fn_item) => {
-                let mut method_sig = format_fn_sig(&fn_item.sig, None);
-                if method_sig.starts_with("pub fn ") {
-                    method_sig = method_sig.replacen("pub fn ", "fn ", 1);
-                }
-                items.push(format!("{method_sig};"));
-            }
-            TraitItem::Type(ty_item) => {
-                items.push(format!("type {};", ty_item.ident));
-            }
-            TraitItem::Const(c_item) => {
-                items.push(format!(
-                    "const {}: {};",
-                    c_item.ident,
-                    normalize_tokens(&c_item.ty)
-                ));
-            }
-            _ => {}
-        }
-    }
-    s.push_str(&items.join(" "));
+    let mut formatter = TraitItemFormatter::default();
+    formatter.visit_item_trait(item);
+    s.push_str(&formatter.items.join(" "));
     s.push_str(" }");
     s
 }
