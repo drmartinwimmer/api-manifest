@@ -30,6 +30,10 @@
 
 - `pub trait ConfigFile { fn config_file_path() -> & 'static str; }` — _Trait implemented by structures representing configuration file contents._
 
+### Derive Macros
+
+- `#[proc_macro_derive(ConfigFile, attributes(config_file, config_section))]` — _Derives the `ConfigFile` trait, requiring a `#[config_file("path/to/file")]` attribute._
+
 ## 2. CLI API
 
 ### `api-manifest`

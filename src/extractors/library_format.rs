@@ -1,14 +1,118 @@
 use crate::extractors::cli_args::is_cfg_test;
+use crate::library_api::{ItemKind, LibraryItem};
 use quote::ToTokens;
 use syn::visit::{self, Visit};
 use syn::{
-    Attribute, Expr, ExprLit, Field, Fields, FnArg, ItemConst, ItemEnum, ItemStatic, ItemStruct,
-    ItemTrait, ItemType, Lit, Meta, ReturnType, TraitItemConst, TraitItemFn, TraitItemType,
-    UseTree, Variant, Visibility,
+    Attribute, Expr, ExprLit, Field, Fields, FnArg, Ident, ImplItemFn, ItemConst, ItemEnum, ItemFn,
+    ItemMacro, ItemStatic, ItemStruct, ItemTrait, ItemType, Lit, Meta, ReturnType, TraitItemConst,
+    TraitItemFn, TraitItemType, UseTree, Variant, Visibility,
 };
 
 pub(crate) fn is_public(vis: &Visibility) -> bool {
     matches!(vis, Visibility::Public(_))
+}
+
+pub(crate) fn has_attribute(attrs: &[Attribute], name: &str) -> bool {
+    attrs.iter().any(|attr| attr.path().is_ident(name))
+}
+
+pub(crate) fn format_macro_rules(ident: &Ident) -> String {
+    format!("macro_rules! {ident}")
+}
+
+pub(crate) fn extract_exported_macro(
+    item_macro: &ItemMacro,
+    module_path: &str,
+) -> Option<LibraryItem> {
+    if is_cfg_test(&item_macro.attrs) || !has_attribute(&item_macro.attrs, "macro_export") {
+        return None;
+    }
+    let ident = item_macro.ident.as_ref()?;
+    let name = ident.to_string();
+    let path = format!("{module_path}::{name}");
+    let sig = format_macro_rules(ident);
+    let doc = extract_doc_comment(&item_macro.attrs);
+    Some(LibraryItem::new(ItemKind::Macro, name, path, sig, doc))
+}
+
+pub(crate) fn extract_impl_method(
+    method: &ImplItemFn,
+    self_ty: &str,
+    module_path: &str,
+) -> Option<LibraryItem> {
+    if is_cfg_test(&method.attrs) || !is_public(&method.vis) {
+        return None;
+    }
+    let method_name = method.sig.ident.to_string();
+    let qual_name = format!("{self_ty}::{method_name}");
+    let path = format!("{module_path}::{qual_name}");
+    let sig = format_fn_sig(&method.sig, Some(self_ty));
+    let doc = extract_doc_comment(&method.attrs);
+    Some(LibraryItem::new(
+        ItemKind::Method,
+        qual_name,
+        path,
+        sig,
+        doc,
+    ))
+}
+
+pub(crate) fn extract_proc_macro_derive(attrs: &[Attribute]) -> Option<(String, String)> {
+    for attr in attrs {
+        if !attr.path().is_ident("proc_macro_derive") {
+            continue;
+        }
+        let mut derive_name: Option<String> = None;
+        let mut helper_attrs: Vec<String> = Vec::new();
+        let parse_res = attr.parse_nested_meta(|meta| {
+            if derive_name.is_none() {
+                if let Some(ident) = meta.path.get_ident() {
+                    derive_name = Some(ident.to_string());
+                }
+                return Ok(());
+            }
+            if meta.path.is_ident("attributes") {
+                meta.parse_nested_meta(|nested| {
+                    if let Some(ident) = nested.path.get_ident() {
+                        helper_attrs.push(ident.to_string());
+                    }
+                    Ok(())
+                })?;
+            }
+            Ok(())
+        });
+        if parse_res.is_ok()
+            && let Some(name) = derive_name
+        {
+            let sig = if helper_attrs.is_empty() {
+                format!("#[proc_macro_derive({name})]")
+            } else {
+                format!(
+                    "#[proc_macro_derive({name}, attributes({}))]",
+                    helper_attrs.join(", ")
+                )
+            };
+            return Some((name, sig));
+        }
+    }
+    None
+}
+
+pub(crate) fn format_item_fn_kind_name_sig(item_fn: &ItemFn) -> (ItemKind, String, String) {
+    if let Some((derive_name, sig)) = extract_proc_macro_derive(&item_fn.attrs) {
+        return (ItemKind::DeriveMacro, derive_name, sig);
+    }
+    let name = item_fn.sig.ident.to_string();
+    if has_attribute(&item_fn.attrs, "proc_macro") {
+        let sig = format!("#[proc_macro] pub fn {name}");
+        return (ItemKind::Macro, name, sig);
+    }
+    if has_attribute(&item_fn.attrs, "proc_macro_attribute") {
+        let sig = format!("#[proc_macro_attribute] pub fn {name}");
+        return (ItemKind::Macro, name, sig);
+    }
+    let sig = format_fn_sig(&item_fn.sig, None);
+    (ItemKind::Function, name, sig)
 }
 
 pub(crate) fn extract_doc_comment(attrs: &[Attribute]) -> Option<String> {

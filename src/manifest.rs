@@ -539,4 +539,62 @@ mod tests {
 
         Ok(())
     }
+
+    #[googletest::test]
+    fn format_and_parse_macros_and_derives_roundtrip_is_clean()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut manifest = ApiManifest::new("demo-crate", Some("1.0.0".to_string()));
+        let items = vec![
+            LibraryItem::new(
+                ItemKind::Trait,
+                "ConfigFile",
+                "demo_crate::ConfigFile",
+                "pub trait ConfigFile { fn config_file_path() -> & 'static str; }",
+                Some("Trait for config files".to_string()),
+            ),
+            LibraryItem::new(
+                ItemKind::DeriveMacro,
+                "ConfigFile",
+                "demo_crate::ConfigFile",
+                "#[proc_macro_derive(ConfigFile, attributes(config_file, config_section))]",
+                Some("Derives the ConfigFile trait".to_string()),
+            ),
+            LibraryItem::new(
+                ItemKind::Macro,
+                "my_vec",
+                "demo_crate::my_vec",
+                "macro_rules! my_vec",
+                Some("Constructs a vector".to_string()),
+            ),
+            LibraryItem::new(
+                ItemKind::Macro,
+                "route",
+                "demo_crate::route",
+                "#[proc_macro_attribute] pub fn route",
+                None,
+            ),
+        ];
+        manifest = manifest.with_library(LibraryApi::new(items));
+
+        let md = manifest.format_markdown();
+        expect_that!(md, contains_substring("### Macros"));
+        expect_that!(md, contains_substring("### Derive Macros"));
+        expect_that!(md, contains_substring("macro_rules! my_vec"));
+        expect_that!(
+            md,
+            contains_substring(
+                "#[proc_macro_derive(ConfigFile, attributes(config_file, config_section))]"
+            )
+        );
+
+        let md_report = manifest.diff_markdown(&md);
+        expect_that!(md_report.is_clean(), is_true());
+
+        let json = serde_json::to_string_pretty(&manifest)?;
+        let parsed = ApiManifest::parse_str(&json)?;
+        let report = manifest.diff(&parsed);
+        expect_that!(report.is_clean(), is_true());
+
+        Ok(())
+    }
 }
