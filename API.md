@@ -69,3 +69,15 @@ Inspect codebase and generate or update the API manifest (API.md)
 | `-o`, `--output` | `PATH`   | No       | `API.md` | Output manifest file path                        |
 | `--path`         | `PATH`   | No       | `-`      | Path to target crate or workspace directory      |
 | `-q`, `--quiet`  | `-`      | No       | `-`      | Silence non-essential logging output             |
+
+## 3. Configuration Formats
+
+### `[package]` (_Cargo.toml_)
+
+Package metadata extracted from `Cargo.toml`.
+
+| Key            | Value Type       | Default | Description                    |
+| -------------- | ---------------- | ------- | ------------------------------ |
+| `name`         | `String`         | `-`     | Package name                   |
+| `rust-version` | `Option<String>` | `-`     | Minimum supported Rust version |
+| `version`      | `Option<String>` | `-`     | Package version                |
