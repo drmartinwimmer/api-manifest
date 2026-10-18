@@ -43,15 +43,16 @@ jobs:
           cargo check
           if [ -f API.md ]; then
             cargo run -- dump --quiet || true
+            npx --yes prettier --write API.md || true
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet Cargo.lock Cargo.toml crates/api-manifest-derive/Cargo.toml; then
+          if ! git diff --quiet Cargo.lock Cargo.toml crates/api-manifest-derive/Cargo.toml API.md; then
             git add Cargo.lock Cargo.toml crates/api-manifest-derive/Cargo.toml
             if [ -f API.md ]; then
               git add API.md
             fi
-            git commit -m "chore: sync Cargo.lock"
+            git commit -m "chore: sync Cargo.lock and API.md"
             git push
           fi
 
