@@ -1,5 +1,5 @@
 use crate::diff_report::{ApiDriftReport, DriftItem, DriftSurface};
-use crate::markdown_parser::format_aligned_table;
+use crate::manifest::ApiManifest;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -73,7 +73,7 @@ impl HttpApi {
                 ]
             })
             .collect();
-        format_aligned_table(out, &headers, &rows);
+        ApiManifest::format_aligned_table(out, &headers, &rows);
     }
 
     pub(crate) fn diff(&self, baseline: &Self) -> ApiDriftReport {

@@ -1,5 +1,5 @@
 use crate::diff_report::{ApiDriftReport, DriftItem, DriftSurface};
-use crate::markdown_parser::{format_aligned_table, split_markdown_cells};
+use crate::manifest::ApiManifest;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -31,35 +31,6 @@ impl ConfigOptionItem {
             default_value,
             doc,
         }
-    }
-
-    pub(crate) fn from_markdown_row(trimmed: &str) -> Option<Self> {
-        let cols = split_markdown_cells(trimmed);
-        if cols.len() < 5 {
-            return None;
-        }
-        let key = cols
-            .get(1)
-            .map(|s| s.trim_matches('`'))
-            .unwrap_or_default()
-            .to_string();
-        if key.is_empty() {
-            return None;
-        }
-        let val_type = cols
-            .get(2)
-            .map(|s| s.trim_matches('`'))
-            .unwrap_or_default()
-            .to_string();
-        let def_val = match cols.get(3).map(String::as_str) {
-            Some("-" | "`-`" | "") | None => None,
-            Some(s) => Some(s.trim_matches('`').to_string()),
-        };
-        let desc = match cols.get(4).map(String::as_str) {
-            Some("-" | "") | None => None,
-            Some(s) => Some(s.to_string()),
-        };
-        Some(Self::new(key, val_type, def_val, desc))
     }
 }
 
@@ -205,7 +176,7 @@ impl ConfigApi {
                         ]
                     })
                     .collect();
-                format_aligned_table(out, &headers, &rows);
+                ApiManifest::format_aligned_table(out, &headers, &rows);
             }
         }
     }

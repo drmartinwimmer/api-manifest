@@ -35,27 +35,6 @@ impl std::fmt::Display for ItemKind {
     }
 }
 
-impl ItemKind {
-    pub(crate) fn from_markdown_section(subsection: &str, sig: &str) -> Self {
-        match subsection {
-            "Structs" => Self::Struct,
-            "Enums" => Self::Enum,
-            "Functions" => Self::Function,
-            "Methods" => Self::Method,
-            "Traits" => Self::Trait,
-            "Type Aliases" => Self::TypeAlias,
-            "Re-exports" => Self::Reexport,
-            _ => {
-                if sig.starts_with("pub static ") {
-                    Self::Static
-                } else {
-                    Self::Constant
-                }
-            }
-        }
-    }
-}
-
 /// A single public library item in a Rust crate.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub(crate) struct LibraryItem {
@@ -99,6 +78,7 @@ pub(crate) struct LibraryApi {
 impl LibraryApi {
     pub(crate) fn new(mut items: Vec<LibraryItem>) -> Self {
         items.sort();
+        items.dedup_by(|a, b| a.kind == b.kind && a.name == b.name && a.signature == b.signature);
         Self { items }
     }
 

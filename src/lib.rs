@@ -9,7 +9,6 @@ mod extractors;
 mod http_api;
 mod library_api;
 mod manifest;
-mod markdown_parser;
 mod schema_api;
 
 pub use commands::{ApiManifestCommand, ApiManifestError};
