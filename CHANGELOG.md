@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/drmartinwimmer/api-manifest/compare/api-manifest-v0.3.0...api-manifest-v0.4.0) (2026-10-19)
+
+
+### Features
+
+* add public macros and derive macros to library API manifest ([4235ec3](https://github.com/drmartinwimmer/api-manifest/commit/4235ec3179ef923830925de9915e7af495fc36f3))
+* add public macros and derive macros to library API manifest ([95353c1](https://github.com/drmartinwimmer/api-manifest/commit/95353c101e2a403ad52f33b10e3c1ecfb951cfc0))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * api-manifest-derive bumped from 0.3.0 to 0.4.0
+
 ## [0.3.0](https://github.com/drmartinwimmer/api-manifest/compare/api-manifest-v0.2.1...api-manifest-v0.3.0) (2026-10-18)
 
 
