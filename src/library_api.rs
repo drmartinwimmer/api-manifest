@@ -11,6 +11,8 @@ pub(crate) enum ItemKind {
     Function,
     Method,
     Trait,
+    Macro,
+    DeriveMacro,
     TypeAlias,
     Constant,
     Static,
@@ -26,6 +28,8 @@ impl std::fmt::Display for ItemKind {
             Self::Function => write!(f, "function"),
             Self::Method => write!(f, "method"),
             Self::Trait => write!(f, "trait"),
+            Self::Macro => write!(f, "macro"),
+            Self::DeriveMacro => write!(f, "derive_macro"),
             Self::TypeAlias => write!(f, "type_alias"),
             Self::Constant => write!(f, "constant"),
             Self::Static => write!(f, "static"),
@@ -90,6 +94,8 @@ impl LibraryApi {
         let mut structs = Vec::new();
         let mut enums = Vec::new();
         let mut traits = Vec::new();
+        let mut macros = Vec::new();
+        let mut derive_macros = Vec::new();
         let mut type_aliases = Vec::new();
         let mut constants = Vec::new();
         let mut reexports = Vec::new();
@@ -102,6 +108,8 @@ impl LibraryApi {
                 ItemKind::Field => {}
                 ItemKind::Enum => enums.push(item),
                 ItemKind::Trait => traits.push(item),
+                ItemKind::Macro => macros.push(item),
+                ItemKind::DeriveMacro => derive_macros.push(item),
                 ItemKind::TypeAlias => type_aliases.push(item),
                 ItemKind::Constant | ItemKind::Static => constants.push(item),
                 ItemKind::Reexport => reexports.push(item),
@@ -113,6 +121,8 @@ impl LibraryApi {
         Self::format_section(out, "Functions", &functions);
         Self::format_section(out, "Methods", &methods);
         Self::format_section(out, "Traits", &traits);
+        Self::format_section(out, "Macros", &macros);
+        Self::format_section(out, "Derive Macros", &derive_macros);
         Self::format_section(out, "Type Aliases", &type_aliases);
         Self::format_section(out, "Constants & Statics", &constants);
         Self::format_section(out, "Re-exports", &reexports);
@@ -136,16 +146,19 @@ impl LibraryApi {
 
     pub(crate) fn diff(&self, baseline: &Self) -> ApiDriftReport {
         let mut report = ApiDriftReport::default();
-        let active_map: HashMap<&str, &LibraryItem> =
-            self.items.iter().map(|i| (i.path.as_str(), i)).collect();
-        let base_map: HashMap<&str, &LibraryItem> = baseline
+        let active_map: HashMap<(ItemKind, &str), &LibraryItem> = self
             .items
             .iter()
-            .map(|i| (i.path.as_str(), i))
+            .map(|i| ((i.kind, i.path.as_str()), i))
+            .collect();
+        let base_map: HashMap<(ItemKind, &str), &LibraryItem> = baseline
+            .items
+            .iter()
+            .map(|i| ((i.kind, i.path.as_str()), i))
             .collect();
 
-        for (path, base_item) in &base_map {
-            if let Some(active_item) = active_map.get(path) {
+        for (key, base_item) in &base_map {
+            if let Some(active_item) = active_map.get(key) {
                 if base_item.signature != active_item.signature {
                     report.add_modification(DriftItem::new(
                         DriftSurface::Library,
