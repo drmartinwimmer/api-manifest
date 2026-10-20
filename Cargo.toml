@@ -3,7 +3,7 @@ members = [".", "crates/api-manifest-derive"]
 
 [package]
 name = "api-manifest"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.88.0"
 license = "MIT"
@@ -22,7 +22,7 @@ name = "api-manifest"
 path = "src/main.rs"
 
 [dependencies]
-api-manifest-derive = { version = "0.3.0", path = "crates/api-manifest-derive" }
+api-manifest-derive = { version = "0.4.0", path = "crates/api-manifest-derive" }
 clap = { version = "4.5", features = ["derive"] }
 quote = "1.0"
 serde = { version = "1.0", features = ["derive"] }

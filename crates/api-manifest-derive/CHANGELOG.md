@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/drmartinwimmer/api-manifest/compare/api-manifest-derive-v0.3.0...api-manifest-derive-v0.4.0) (2026-10-19)
+
+
+### Miscellaneous Chores
+
+* **api-manifest-derive:** Synchronize api-manifest-workspace versions
+
 ## [0.3.0](https://github.com/drmartinwimmer/api-manifest/compare/api-manifest-derive-v0.2.1...api-manifest-derive-v0.3.0) (2026-10-18)
 
 
