@@ -1,5 +1,6 @@
-use crate::diagnostics::{DiagnosticReport, OutputFormat};
+use crate::diagnostics::DiagnosticReport;
 use crate::manifest::{ApiManifest, ManifestError, ManifestFormat};
+use crate::reporter::{OutputFormat, render_report};
 use clap::{Args, Subcommand, ValueEnum};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -245,7 +246,7 @@ impl ApiCheckArgs {
                 let output_format = self.format.unwrap_or(OutputFormat::Console);
                 let diags = report.to_diagnostics(&target.manifest_path.display().to_string());
                 let diag_report = DiagnosticReport::new(diags);
-                diag_report.render(output_format, &mut std::io::stderr())?;
+                render_report(&diag_report, output_format, &mut std::io::stderr())?;
             }
 
             if !report.is_clean() {
@@ -444,6 +445,7 @@ impl ApiManifestCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostics::Diagnostic;
     use googletest::prelude::*;
 
     struct TempDirGuard(PathBuf);
@@ -695,7 +697,7 @@ mod tests {
         assert_that!(check_cmd.run(), ok(anything()));
 
         let clean_report = ApiManifest::check_path(&temp_dir)?;
-        expect_that!(clean_report.summary.total_errors, eq(0));
+        expect_that!(clean_report.error_count(), eq(0));
         expect_that!(clean_report.diagnostics, is_empty());
 
         fs::write(
@@ -704,14 +706,17 @@ mod tests {
         )?;
 
         let drift_report = ApiManifest::check_path(&temp_dir)?;
-        expect_that!(drift_report.summary.total_warnings, eq(1));
+        expect_that!(drift_report.warning_count(), eq(1));
         expect_that!(drift_report.diagnostics.len(), eq(1));
         let diag = drift_report
             .diagnostics
             .first()
             .ok_or("diagnostic missing")?;
-        expect_that!(diag.rule, eq("api::drift::addition"));
-        expect_that!(diag.message, contains_substring("newly_added"));
+        expect_that!(
+            diag.code().map(|c| c.to_string()),
+            some(eq("api::drift::addition"))
+        );
+        expect_that!(diag.to_string(), contains_substring("newly_added"));
 
         Ok(())
     }

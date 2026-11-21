@@ -8,16 +8,19 @@
 
 - `pub struct ApiManifest { /* no public fields */ }` — _Comprehensive public API manifest representing library, CLI, HTTP, and config surfaces._
 - `pub struct ApiManifestCommand { /* no public fields */ }` — _Command-line arguments for `api-manifest`._
-- `pub struct Diagnostic { pub rule: String, pub severity: Severity, pub message: String, pub span: Option < Span >, pub suggested_fix: Option < String > }` — _A structured diagnostic finding._
-- `pub struct DiagnosticReport { pub diagnostics: Vec < Diagnostic >, pub summary: ReportSummary }` — _Aggregated report of diagnostics._
-- `pub struct ReportSummary { pub total_errors: usize, pub total_warnings: usize, pub total_info: usize, pub total_hints: usize }` — _Summary counts for a diagnostic report._
-- `pub struct Span { pub file: PathBuf, pub start_line: usize, pub start_col: usize, pub end_line: usize, pub end_col: usize }` — _Source code location span._
+- `pub struct DiagnosticReport { pub diagnostics: Vec < ApiManifestDiagnostic > }` — _An aggregated container of all [`ApiManifestDiagnostic`] findings produced during a check run._
+- `pub struct Span { pub file: PathBuf, pub start_line: usize, pub start_col: usize, pub end_line: usize, pub end_col: usize }` — _Source code location span with optional byte offsets and source text for [`miette::SourceCode`] rendering._
 
 ### Enums
 
+- `pub enum ApiManifestDiagnostic { Removal { surface: String, name: String, detail: String, is_breaking: bool, span: Span }, Modification { surface: String, name: String, detail: String, is_breaking: bool, span: Span }, Addition { surface: String, name: String, detail: String, span: Span } }` — _Concrete [`miette::Diagnostic`] enum for API drift findings produced by `api-manifest`._
 - `pub enum ApiManifestError { PathNotFound(PathBuf), ManifestNotFound(PathBuf), Io(std :: io :: Error), Manifest(ManifestError), Json(serde_json :: Error), DriftDetected { drift_count: usize, breaking_count: usize } }` — _Error type for API manifest inspection execution._
 - `pub enum ManifestError { Json(serde_json :: Error), Toml(de :: Error), Syn(syn :: Error), Io(std :: io :: Error), MissingPackageSection }` — _Manifest formatting, parsing, and extraction errors._
-- `pub enum Severity { Hint, Info, Warning, Error }` — _Severity level for a diagnostic finding._
+- `pub enum OutputFormat { Console, Json, Markdown }` — _Output format for diagnostic reports and manifests._
+
+### Functions
+
+- `pub fn render_report(report: & DiagnosticReport, format: OutputFormat, writer: & mut dyn io :: Write) -> io :: Result < () >` — _Renders a diagnostic report to the specified writer in the chosen format._
 
 ### Methods
 
@@ -25,6 +28,16 @@
 - `pub fn ApiManifest::extract_from_crate(crate_root: & Path) -> Result < Self , ManifestError >` — _Auto-detects targets and extracts the public API manifest from a crate root._
 - `pub fn ApiManifest::format_markdown(& self) -> String` — _Formats this `ApiManifest` as GitHub Flavored Markdown (`API.md`)._
 - `pub fn ApiManifestCommand::run(self) -> Result < () , ApiManifestError >` — _Runs the API command (defaults to check if no subcommand is given)._
+- `const pub fn ApiManifestDiagnostic::span(& self) -> & Span` — _Returns the source [`Span`] associated with this diagnostic._
+- `pub fn DiagnosticReport::advice_count(& self) -> usize` — _Returns the total count of advice/hint diagnostics._
+- `pub fn DiagnosticReport::error_count(& self) -> usize` — _Returns the total count of error diagnostics._
+- `pub fn DiagnosticReport::has_errors(& self) -> bool` — _Returns true if any diagnostic has error severity._
+- `pub fn DiagnosticReport::is_empty(& self) -> bool` — _Returns true if there are no diagnostics in the report._
+- `pub fn DiagnosticReport::new(diagnostics: Vec < ApiManifestDiagnostic >) -> Self` — _Creates a new diagnostic report with the given diagnostics, automatically computing summary counts._
+- `pub fn DiagnosticReport::warning_count(& self) -> usize` — _Returns the total count of warning diagnostics._
+- `pub fn Span::new(file: impl Into < PathBuf >, start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> Self` — _Creates a new source code span without byte offsets._
+- `pub fn Span::with_byte_offsets(mut self, start_byte: usize, end_byte: usize) -> Self` — _Attaches byte offsets to the span._
+- `pub fn Span::with_source(mut self, source: Arc < str >) -> Self` — _Attaches shared source code text to the span._
 
 ### Traits
 
@@ -33,6 +46,11 @@
 ### Derive Macros
 
 - `#[proc_macro_derive(ConfigFile, attributes(config_file, config_section))]` — _Derives the `ConfigFile` trait, requiring a `#[config_file("path/to/file")]` attribute._
+
+### Re-exports
+
+- `pub use diagnostics::Diagnostic;`
+- `pub use diagnostics::Severity;`
 
 ## 2. CLI API
 

@@ -370,7 +370,7 @@ impl ApiManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diagnostics::Severity;
+    use crate::diagnostics::{Diagnostic, Severity};
     use crate::library_api::{ItemKind, LibraryApi, LibraryItem};
     use googletest::prelude::*;
 
@@ -467,8 +467,11 @@ mod tests {
         let diags = report.to_diagnostics("API.md");
         expect_that!(diags.len(), eq(1));
         let diag = diags.first().ok_or("diag missing")?;
-        expect_that!(diag.severity, eq(Severity::Error));
-        expect_that!(diag.rule, eq("api::drift::removal"));
+        expect_that!(diag.severity(), some(eq(Severity::Error)));
+        expect_that!(
+            diag.code().map(|c| c.to_string()),
+            some(eq("api::drift::removal"))
+        );
 
         Ok(())
     }
@@ -500,8 +503,11 @@ mod tests {
         let diags = report.to_diagnostics("API.md");
         expect_that!(diags.len(), eq(1));
         let diag = diags.first().ok_or("diag missing")?;
-        expect_that!(diag.severity, eq(Severity::Warning));
-        expect_that!(diag.rule, eq("api::drift::addition"));
+        expect_that!(diag.severity(), some(eq(Severity::Warning)));
+        expect_that!(
+            diag.code().map(|c| c.to_string()),
+            some(eq("api::drift::addition"))
+        );
 
         Ok(())
     }
