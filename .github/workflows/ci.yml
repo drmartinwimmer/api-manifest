@@ -140,6 +140,9 @@ jobs:
     needs: [lint, test, msrv, nix]
     if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    concurrency:
+      group: dependabot-auto-merge
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -150,37 +153,72 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-merge patch and minor updates
+      - name: Auto-merge patch and minor updates (excluding Nix flakes)
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
-          UPDATED_DEPS_JSON: ${{ steps.metadata.outputs.updated-dependencies-json }}
         run: |
-          SHOULD_MERGE=false
-          if [ "$UPDATE_TYPE" = "version-update:semver-patch" ] || [ "$UPDATE_TYPE" = "version-update:semver-minor" ]; then
-            SHOULD_MERGE=true
-          elif echo "$UPDATED_DEPS_JSON" | jq -e '
-            map(select((.newVersion // "") | test("^[0-9a-f]{40}$") | not))
-            | length > 0 and all(.updateType == "version-update:semver-patch" or .updateType == "version-update:semver-minor")
-          ' > /dev/null; then
-            SHOULD_MERGE=true
+          if [ "$PACKAGE_ECOSYSTEM" = "nix" ]; then
+            echo "Skipping auto-merge for Nix flake updates."
+            exit 0
           fi
 
-          if [ "$SHOULD_MERGE" = "true" ]; then
-            if ! gh pr merge --auto --merge "$PR_URL"; then
-              for attempt in 1 2 3; do
-                if gh pr merge --merge "$PR_URL"; then
-                  break
-                fi
-                if [ "$attempt" -lt 3 ]; then
-                  sleep 5
-                else
-                  exit 1
-                fi
-              done
-            fi
-          else
-            echo "Skipping auto-merge for update type: $UPDATE_TYPE"
+          if gh pr view "$PR_URL" --json files --jq '.files[].path' | grep -qxE 'flake\.(lock|nix)'; then
+            echo "Skipping auto-merge for PR modifying Nix flake files."
+            exit 0
           fi
+
+          if [ "$UPDATE_TYPE" != "version-update:semver-patch" ] && [ "$UPDATE_TYPE" != "version-update:semver-minor" ]; then
+            echo "Skipping auto-merge for update type: $UPDATE_TYPE"
+            exit 0
+          fi
+
+          if gh pr merge --auto --merge "$PR_URL"; then
+            exit 0
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            PR_INFO=$(gh pr view "$PR_URL" --json state,mergeStateStatus)
+            PR_STATE=$(echo "$PR_INFO" | jq -r '.state')
+            MERGE_STATE=$(echo "$PR_INFO" | jq -r '.mergeStateStatus')
+
+            if [ "$PR_STATE" = "MERGED" ]; then
+              echo "Pull request is already merged."
+              exit 0
+            fi
+
+            if [ "$MERGE_STATE" = "UNKNOWN" ]; then
+              if [ "$attempt" -lt 5 ]; then
+                sleep 5
+                continue
+              fi
+            fi
+
+            if [ "$MERGE_STATE" = "BEHIND" ]; then
+              echo "::notice::Skipping immediate merge because the PR branch is behind the base branch (e.g. another PR merged while CI was running). Rebase/update the branch (e.g. '@dependabot rebase') or enable repository auto-merge."
+              exit 0
+            fi
+
+            if [ "$MERGE_STATE" = "DIRTY" ]; then
+              echo "::notice::Skipping immediate merge because the PR has merge conflicts. Dependabot will rebase automatically."
+              exit 0
+            fi
+
+            if gh pr merge --merge "$PR_URL"; then
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 5 ]; then
+              sleep 5
+            fi
+          done
+
+          MERGE_STATE=$(gh pr view "$PR_URL" --json mergeStateStatus --jq '.mergeStateStatus')
+          if [ "$MERGE_STATE" = "BEHIND" ] || [ "$MERGE_STATE" = "DIRTY" ]; then
+            echo "::notice::PR became $MERGE_STATE while attempting merge; waiting for rebase/update."
+            exit 0
+          fi
+          exit 1
 
