@@ -32,6 +32,9 @@ updates:
     multi-ecosystem-group: "rust-toolchain"
     patterns:
       - "*"
+    cooldown:
+      exclude:
+        - "*"
 
   - package-ecosystem: "nix"
     directory: "/"

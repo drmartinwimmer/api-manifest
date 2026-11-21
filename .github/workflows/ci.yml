@@ -126,14 +126,39 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v23
 
-      - name: Cache Nix builds
-        uses: DeterminateSystems/magic-nix-cache-action@v15
-
       - name: Check Nix flake
         run: nix flake check
 
       - name: Build Nix package
         run: nix build
+
+      - name: Verify direnv in standard checkout and secondary jj workspace
+        run: |
+          nix shell --flake-registry "" --inputs-from . nixpkgs#direnv --command bash -euo pipefail <<'EOF'
+          expected_channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          [ -n "$expected_channel" ]
+
+          verify_direnv() {
+            local dir="$1"
+            direnv allow "$dir"
+            EXPECTED_CHANNEL="$expected_channel" direnv exec "$dir" bash -euo pipefail -c '
+              [ -n "${IN_NIX_SHELL:-}" ]
+              rustc --version | grep -E "^rustc ${EXPECTED_CHANNEL}(\.| )"
+              cargo --version
+              cargo-audit --version
+              taplo --version
+              prettier --version
+            '
+          }
+
+          verify_direnv .
+
+          mkdir -p .workspaces/ci-test
+          trap 'rm -rf .workspaces' EXIT
+          cp .envrc flake.nix flake.lock rust-toolchain.toml .workspaces/ci-test/
+          [ ! -e .workspaces/ci-test/.git ]
+          verify_direnv .workspaces/ci-test
+          EOF
 
   auto-merge:
     name: Dependabot Auto-Merge
