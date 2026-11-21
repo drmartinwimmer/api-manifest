@@ -9,12 +9,14 @@ mod extractors;
 mod http_api;
 mod library_api;
 mod manifest;
+mod reporter;
 mod schema_api;
 
 pub use commands::{ApiManifestCommand, ApiManifestError};
 pub use config_file::ConfigFile;
-pub use diagnostics::{Diagnostic, DiagnosticReport, ReportSummary, Severity, Span};
+pub use diagnostics::{ApiManifestDiagnostic, Diagnostic, DiagnosticReport, Severity, Span};
 pub use manifest::{ApiManifest, ManifestError};
+pub use reporter::{OutputFormat, render_report};
 
 #[cfg(test)]
 mod tests {

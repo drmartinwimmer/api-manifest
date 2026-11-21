@@ -1,4 +1,4 @@
-use crate::diagnostics::{Diagnostic, Severity, Span};
+use crate::diagnostics::{ApiManifestDiagnostic, Span};
 
 /// Surface category where drift occurred.
 #[derive(
@@ -117,69 +117,37 @@ impl ApiDriftReport {
         self.additions.len() + self.removals.len() + self.modifications.len()
     }
 
-    /// Converts drift items into standard [`Diagnostic`] findings.
-    pub(crate) fn to_diagnostics(&self, manifest_file: &str) -> Vec<Diagnostic> {
+    /// Converts drift items into concrete [`ApiManifestDiagnostic`] findings.
+    pub(crate) fn to_diagnostics(&self, manifest_file: &str) -> Vec<ApiManifestDiagnostic> {
         let mut diags = Vec::new();
 
         for item in &self.removals {
-            let severity = if item.is_breaking {
-                Severity::Error
-            } else {
-                Severity::Warning
-            };
-            diags.push(
-                Diagnostic::new(
-                    "api::drift::removal",
-                    severity,
-                    format!(
-                        "Public {} item '{}' was removed: {}",
-                        item.surface, item.name, item.detail
-                    ),
-                )
-                .with_span(Span::new(manifest_file, 1, 1, 1, 1))
-                .with_suggested_fix(
-                    "Update API manifest via 'api-manifest dump' if this removal was intentional",
-                ),
-            );
+            diags.push(ApiManifestDiagnostic::Removal {
+                surface: item.surface.to_string(),
+                name: item.name.clone(),
+                detail: item.detail.clone(),
+                is_breaking: item.is_breaking,
+                span: Span::new(manifest_file, 1, 1, 1, 1),
+            });
         }
 
         for item in &self.modifications {
-            let severity = if item.is_breaking {
-                Severity::Error
-            } else {
-                Severity::Warning
-            };
-            diags.push(
-                Diagnostic::new(
-                    "api::drift::modification",
-                    severity,
-                    format!(
-                        "Public {} item '{}' modified: {}",
-                        item.surface, item.name, item.detail
-                    ),
-                )
-                .with_span(Span::new(manifest_file, 1, 1, 1, 1))
-                .with_suggested_fix(
-                    "Update API manifest via 'api-manifest dump' to reflect signature changes",
-                ),
-            );
+            diags.push(ApiManifestDiagnostic::Modification {
+                surface: item.surface.to_string(),
+                name: item.name.clone(),
+                detail: item.detail.clone(),
+                is_breaking: item.is_breaking,
+                span: Span::new(manifest_file, 1, 1, 1, 1),
+            });
         }
 
         for item in &self.additions {
-            diags.push(
-                Diagnostic::new(
-                    "api::drift::addition",
-                    Severity::Warning,
-                    format!(
-                        "New public {} item '{}' added: {}",
-                        item.surface, item.name, item.detail
-                    ),
-                )
-                .with_span(Span::new(manifest_file, 1, 1, 1, 1))
-                .with_suggested_fix(
-                    "Run 'api-manifest dump' to commit newly introduced API items into API.md",
-                ),
-            );
+            diags.push(ApiManifestDiagnostic::Addition {
+                surface: item.surface.to_string(),
+                name: item.name.clone(),
+                detail: item.detail.clone(),
+                span: Span::new(manifest_file, 1, 1, 1, 1),
+            });
         }
 
         diags
